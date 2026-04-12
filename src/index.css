@@ -1,13 +1,24 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-panel: #0f3460;
-  --accent: #e94560;
-  --text: #eee;
-  --text-muted: #999;
-  --border: #2a2a4a;
+  --bg-base:    #000000;
+  --bg-panel:   #050505;
+  --bg-sidebar: #080808;
+  --bg-input:   #0f0f0f;
+  --bg-hover:   rgba(255, 255, 255, 0.04);
+  --border:     #181818;
+  --border-md:  #252525;
+  --accent:     #6366f1;
+  --accent-dim: rgba(99, 102, 241, 0.18);
+  --accent-hi:  #818cf8;
+  --text:       #e8e8e8;
+  --text-muted: #737373;
+  --text-faint: #3a3a3a;
+  --red:        #ef4444;
+  --red-dim:    rgba(239, 68, 68, 0.15);
+  --green:      #22c55e;
 }
 
 * {
@@ -17,11 +28,12 @@
 }
 
 body {
-  background: var(--bg-primary);
+  background: var(--bg-base);
   color: var(--text);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   overflow: hidden;
   height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
@@ -30,14 +42,43 @@ body {
   flex-direction: column;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
+/* ── Inputs & selects ─────────────────────────────────────────────── */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0.4;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+
+/* ── Scrollbars ───────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2e2e2e; }
+
+/* ── Range input ──────────────────────────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  background: #1e1e1e;
+  outline: none;
 }
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid #000;
 }
+
+/* ── Color input ──────────────────────────────────────────────────── */
+input[type="color"] {
+  -webkit-appearance: none;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: 1px solid #252525; border-radius: 4px; }

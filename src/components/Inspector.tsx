@@ -11,45 +11,78 @@ import {
   type LineJoin,
 } from "../store/sceneStore";
 import VarPanel from "./VarPanel";
+import { Dropdown } from "./Dropdown";
 
-// ─── Helpers ───────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────
 
 function bvNumber(bv: BoundValue): number {
   return bv.type === "Literal" ? bv.value : 0;
 }
-
 function lit(v: number): BoundValue {
   return { type: "Literal", value: v };
 }
-
 function colorFromBound(c: BoundColor | null): string {
   if (!c) return "#000000";
   const [r, g, b] = c.Rgba;
-  const toHex = (n: number) =>
-    Math.round(n * 255)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  const h = (n: number) => Math.round(n * 255).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
 }
-
 function colorToBound(hex: string, alpha: number): BoundColor {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
   return { Rgba: [r, g, b, alpha] };
 }
-
 function alphaFromBound(c: BoundColor | null): number {
   return c ? c.Rgba[3] : 1;
 }
 
 type BVMode = "Literal" | "LVar" | "AVar" | "Expr";
+function bvMode(bv: BoundValue): BVMode { return bv.type; }
 
-function bvMode(bv: BoundValue): BVMode {
-  return bv.type;
+// ── Shared input style ─────────────────────────────────────────────
+
+const inputCls =
+  "bg-[#0f0f0f] border border-[#181818] rounded-md text-[#e8e8e8] text-xs px-2.5 py-1.5 outline-none focus:border-[#6366f1] transition-colors w-full";
+
+// ── Section header ─────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-widest mt-3 mb-1.5" style={{ color: "#454545" }}>
+      {children}
+    </div>
+  );
 }
 
-// ─── BoundValueField ───────────────────────────────────────────────
+// ── Field row ──────────────────────────────────────────────────────
+
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] shrink-0 w-10 text-right" style={{ color: "#737373" }}>{label}</span>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+// ── Mode colors ────────────────────────────────────────────────────
+
+const MODE_PILL: Record<BVMode, { bg: string; color: string }> = {
+  Literal: { bg: "#111111",              color: "#888888" },
+  LVar:    { bg: "rgba(59,130,246,0.2)", color: "#60a5fa" },
+  AVar:    { bg: "rgba(34,197,94,0.2)",  color: "#4ade80" },
+  Expr:    { bg: "rgba(168,85,247,0.2)", color: "#c084fc" },
+};
+
+const MODE_OPTIONS = [
+  { value: "Literal", label: "Val"  },
+  { value: "LVar",    label: "LVar" },
+  { value: "AVar",    label: "AVar" },
+  { value: "Expr",    label: "Expr" },
+];
+
+// ── BoundValueField ────────────────────────────────────────────────
 
 function BoundValueField({
   label,
@@ -66,9 +99,7 @@ function BoundValueField({
 
   const setMode = (newMode: BVMode) => {
     switch (newMode) {
-      case "Literal":
-        onChange(lit(bvNumber(value)));
-        break;
+      case "Literal": onChange(lit(bvNumber(value))); break;
       case "LVar": {
         const first = vars.find((v) => v.kind === "LVar");
         onChange({ type: "LVar", name: first?.id ?? "" });
@@ -76,481 +107,271 @@ function BoundValueField({
       }
       case "AVar": {
         const first = vars.find((v) => v.kind === "AVar");
-        onChange({
-          type: "AVar",
-          name: first?.id ?? "",
-          unit: first?.unit ?? "Number",
-          index: first?.index ?? 0,
-        });
+        onChange({ type: "AVar", name: first?.id ?? "", unit: first?.unit ?? "Number", index: first?.index ?? 0 });
         break;
       }
-      case "Expr":
-        onChange({ type: "Expr", expr: "" });
-        break;
+      case "Expr": onChange({ type: "Expr", expr: "" }); break;
     }
   };
 
-  const modeColors: Record<BVMode, string> = {
-    Literal: "bg-gray-700 text-gray-300",
-    LVar: "bg-blue-900/70 text-blue-300",
-    AVar: "bg-green-900/70 text-green-300",
-    Expr: "bg-purple-900/70 text-purple-300",
-  };
+  const lvarOptions = vars.filter((v) => v.kind === "LVar").map((v) => ({
+    value: v.id,
+    label: v.id + (v.sim_name ? ` (${v.sim_name})` : ""),
+  }));
+
+  const avarOptions = vars.filter((v) => v.kind === "AVar").map((v) => ({
+    value: v.id,
+    label: v.id + (v.sim_name ? ` (${v.sim_name})` : ""),
+  }));
 
   return (
-    <div className="space-y-0.5">
-      <div className="flex items-center gap-1.5 text-xs">
-        <span className="w-8 text-right opacity-60 shrink-0">{label}</span>
-
-        {/* Mode selector */}
-        <select
-          className={`text-[10px] px-1 py-0.5 rounded border-0 cursor-pointer font-bold ${modeColors[mode]}`}
+    <FieldRow label={label}>
+      <div className="flex items-center gap-1.5">
+        <Dropdown
+          compact
+          pillStyle={MODE_PILL[mode]}
           value={mode}
-          onChange={(e) => setMode(e.target.value as BVMode)}
-        >
-          <option value="Literal">Val</option>
-          <option value="LVar">LVar</option>
-          <option value="AVar">AVar</option>
-          <option value="Expr">Expr</option>
-        </select>
+          onChange={(v) => setMode(v as BVMode)}
+          options={MODE_OPTIONS}
+        />
 
-        {/* Value input */}
         {mode === "Literal" && (
           <input
             type="number"
-            className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#e94560]"
+            className={inputCls}
             value={value.type === "Literal" ? value.value : 0}
             onChange={(e) => onChange(lit(parseFloat(e.target.value) || 0))}
           />
         )}
-
         {mode === "LVar" && (
-          <select
-            className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 text-xs outline-none"
+          <Dropdown
             value={value.type === "LVar" ? value.name : ""}
-            onChange={(e) =>
-              onChange({ type: "LVar", name: e.target.value })
-            }
-          >
-            <option value="">— select var —</option>
-            {vars
-              .filter((v) => v.kind === "LVar")
-              .map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.id} ({v.sim_name || "unnamed"})
-                </option>
-              ))}
-          </select>
+            onChange={(v) => onChange({ type: "LVar", name: v })}
+            options={lvarOptions}
+            placeholder="— select LVar —"
+          />
         )}
-
         {mode === "AVar" && (
-          <select
-            className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 text-xs outline-none"
+          <Dropdown
             value={value.type === "AVar" ? value.name : ""}
-            onChange={(e) => {
-              const picked = vars.find((v) => v.id === e.target.value);
-              onChange({
-                type: "AVar",
-                name: e.target.value,
-                unit: picked?.unit ?? "Number",
-                index: picked?.index ?? 0,
-              });
+            onChange={(v) => {
+              const picked = vars.find((va) => va.id === v);
+              onChange({ type: "AVar", name: v, unit: picked?.unit ?? "Number", index: picked?.index ?? 0 });
             }}
-          >
-            <option value="">— select var —</option>
-            {vars
-              .filter((v) => v.kind === "AVar")
-              .map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.id} ({v.sim_name || "unnamed"})
-                </option>
-              ))}
-          </select>
+            options={avarOptions}
+            placeholder="— select AVar —"
+          />
         )}
-
         {mode === "Expr" && (
           <input
             type="text"
             placeholder="RPN expression"
-            className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 text-xs font-mono outline-none focus:border-[#e94560]"
+            className={`${inputCls} font-mono`}
             value={value.type === "Expr" ? value.expr : ""}
             onChange={(e) => onChange({ type: "Expr", expr: e.target.value })}
           />
         )}
       </div>
-    </div>
+    </FieldRow>
   );
 }
 
-// ─── Style editor ──────────────────────────────────────────────────
+// ── Style editor ───────────────────────────────────────────────────
 
-function StyleEditor({
-  style,
-  onChange,
-}: {
-  style: NvgStyle;
-  onChange: (s: NvgStyle) => void;
-}) {
+function StyleEditor({ style, onChange }: { style: NvgStyle; onChange: (s: NvgStyle) => void }) {
   return (
-    <div className="space-y-2">
-      <div className="text-xs font-semibold uppercase tracking-wider opacity-60 mt-2">
-        Style
-      </div>
-      {/* Fill */}
-      <label className="flex items-center gap-2 text-xs">
+    <div className="space-y-2.5">
+      <SectionLabel>Fill</SectionLabel>
+      <div className="flex items-center gap-2">
         <input
           type="checkbox"
+          id="fill-toggle"
           checked={style.fill !== null}
-          onChange={(e) =>
-            onChange({
-              ...style,
-              fill: e.target.checked ? colorToBound("#cccccc", 1) : null,
-            })
-          }
+          onChange={(e) => onChange({ ...style, fill: e.target.checked ? colorToBound("#cccccc", 1) : null })}
         />
-        <span className="w-10 opacity-60">Fill</span>
+        <label htmlFor="fill-toggle" className="text-xs cursor-pointer" style={{ color: "#a0a0a0" }}>
+          Enable fill
+        </label>
         {style.fill && (
-          <>
+          <div className="flex items-center gap-2 ml-auto">
             <input
               type="color"
-              className="w-6 h-6 border-0 p-0 bg-transparent cursor-pointer"
+              className="w-7 h-7 rounded-md cursor-pointer"
               value={colorFromBound(style.fill)}
-              onChange={(e) =>
-                onChange({
-                  ...style,
-                  fill: colorToBound(
-                    e.target.value,
-                    alphaFromBound(style.fill),
-                  ),
-                })
-              }
+              onChange={(e) => onChange({ ...style, fill: colorToBound(e.target.value, alphaFromBound(style.fill)) })}
             />
             <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              className="w-14 bg-black/30 border border-[#2a2a4a] rounded px-1 py-0.5 text-xs"
+              type="number" min={0} max={1} step={0.05}
+              className="w-16 text-center"
+              style={{ background: "#0f0f0f", border: "1px solid #181818", borderRadius: 6, color: "#e8e8e8", fontSize: 11, padding: "4px 6px", outline: "none" }}
               value={alphaFromBound(style.fill)}
-              onChange={(e) =>
-                onChange({
-                  ...style,
-                  fill: colorToBound(
-                    colorFromBound(style.fill),
-                    parseFloat(e.target.value) || 1,
-                  ),
-                })
-              }
+              onChange={(e) => onChange({ ...style, fill: colorToBound(colorFromBound(style.fill), parseFloat(e.target.value) || 0) })}
+              title="Opacity"
             />
-          </>
+          </div>
         )}
-      </label>
-      {/* Stroke */}
-      <label className="flex items-center gap-2 text-xs">
+      </div>
+
+      <SectionLabel>Stroke</SectionLabel>
+      <div className="flex items-center gap-2">
         <input
           type="checkbox"
+          id="stroke-toggle"
           checked={style.stroke !== null}
-          onChange={(e) =>
-            onChange({
-              ...style,
-              stroke: e.target.checked ? colorToBound("#ffffff", 1) : null,
-            })
-          }
+          onChange={(e) => onChange({ ...style, stroke: e.target.checked ? colorToBound("#ffffff", 1) : null })}
         />
-        <span className="w-10 opacity-60">Stroke</span>
+        <label htmlFor="stroke-toggle" className="text-xs cursor-pointer" style={{ color: "#a0a0a0" }}>
+          Enable stroke
+        </label>
         {style.stroke && (
-          <>
+          <div className="flex items-center gap-2 ml-auto">
             <input
               type="color"
-              className="w-6 h-6 border-0 p-0 bg-transparent cursor-pointer"
+              className="w-7 h-7 rounded-md cursor-pointer"
               value={colorFromBound(style.stroke)}
-              onChange={(e) =>
-                onChange({
-                  ...style,
-                  stroke: colorToBound(
-                    e.target.value,
-                    alphaFromBound(style.stroke),
-                  ),
-                })
-              }
+              onChange={(e) => onChange({ ...style, stroke: colorToBound(e.target.value, alphaFromBound(style.stroke)) })}
             />
             <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              className="w-14 bg-black/30 border border-[#2a2a4a] rounded px-1 py-0.5 text-xs"
+              type="number" min={0} max={1} step={0.05}
+              className="w-16 text-center"
+              style={{ background: "#0f0f0f", border: "1px solid #181818", borderRadius: 6, color: "#e8e8e8", fontSize: 11, padding: "4px 6px", outline: "none" }}
               value={alphaFromBound(style.stroke)}
-              onChange={(e) =>
-                onChange({
-                  ...style,
-                  stroke: colorToBound(
-                    colorFromBound(style.stroke),
-                    parseFloat(e.target.value) || 1,
-                  ),
-                })
-              }
+              onChange={(e) => onChange({ ...style, stroke: colorToBound(colorFromBound(style.stroke), parseFloat(e.target.value) || 0) })}
+              title="Opacity"
             />
-          </>
+          </div>
         )}
-      </label>
+      </div>
+
       {style.stroke && (
-        <label className="flex items-center gap-2 text-xs">
-          <span className="w-10 text-right opacity-60">Width</span>
+        <FieldRow label="Width">
           <input
-            type="number"
-            min={0}
-            step={0.5}
-            className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 text-xs outline-none"
+            type="number" min={0} step={0.5}
+            className={inputCls}
             value={style.stroke_width}
-            onChange={(e) =>
-              onChange({
-                ...style,
-                stroke_width: parseFloat(e.target.value) || 1,
-              })
-            }
+            onChange={(e) => onChange({ ...style, stroke_width: parseFloat(e.target.value) || 1 })}
           />
-        </label>
+        </FieldRow>
       )}
-      {/* Line cap */}
-      <label className="flex items-center gap-2 text-xs">
-        <span className="w-12 text-right opacity-60">Cap</span>
-        <select
-          className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1 py-0.5 text-xs"
+
+      <SectionLabel>Line</SectionLabel>
+      <FieldRow label="Cap">
+        <Dropdown
           value={style.line_cap}
-          onChange={(e) =>
-            onChange({ ...style, line_cap: e.target.value as LineCap })
-          }
-        >
-          <option value="Butt">Butt</option>
-          <option value="Round">Round</option>
-          <option value="Square">Square</option>
-        </select>
-      </label>
-      {/* Line join */}
-      <label className="flex items-center gap-2 text-xs">
-        <span className="w-12 text-right opacity-60">Join</span>
-        <select
-          className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1 py-0.5 text-xs"
+          onChange={(v) => onChange({ ...style, line_cap: v as LineCap })}
+          options={[
+            { value: "Butt",   label: "Butt"   },
+            { value: "Round",  label: "Round"  },
+            { value: "Square", label: "Square" },
+          ]}
+        />
+      </FieldRow>
+      <FieldRow label="Join">
+        <Dropdown
           value={style.line_join}
-          onChange={(e) =>
-            onChange({ ...style, line_join: e.target.value as LineJoin })
-          }
-        >
-          <option value="Miter">Miter</option>
-          <option value="Round">Round</option>
-          <option value="Bevel">Bevel</option>
-        </select>
-      </label>
+          onChange={(v) => onChange({ ...style, line_join: v as LineJoin })}
+          options={[
+            { value: "Miter", label: "Miter" },
+            { value: "Round", label: "Round" },
+            { value: "Bevel", label: "Bevel" },
+          ]}
+        />
+      </FieldRow>
     </div>
   );
 }
 
-// ─── Geometry editors per kind ─────────────────────────────────────
+// ── Geometry fields ────────────────────────────────────────────────
 
-function GeometryFields({
-  kind,
-  onChange,
-  vars,
-}: {
-  kind: ElementKind;
-  onChange: (k: ElementKind) => void;
-  vars: VarEntry[];
-}) {
+function GeometryFields({ kind, onChange, vars }: { kind: ElementKind; onChange: (k: ElementKind) => void; vars: VarEntry[] }) {
   const F = (label: string, value: BoundValue, key: string) => (
-    <BoundValueField
-      key={key}
-      label={label}
-      value={value}
-      vars={vars}
-      onChange={(v) => onChange({ ...kind, [key]: v } as ElementKind)}
-    />
+    <BoundValueField key={key} label={label} value={value} vars={vars}
+      onChange={(v) => onChange({ ...kind, [key]: v } as ElementKind)} />
   );
 
   switch (kind.type) {
-    case "Rect":
-      return (
-        <div className="space-y-1.5">
-          {F("X", kind.x, "x")}
-          {F("Y", kind.y, "y")}
-          {F("W", kind.w, "w")}
-          {F("H", kind.h, "h")}
-        </div>
-      );
-    case "Circle":
-      return (
-        <div className="space-y-1.5">
-          {F("CX", kind.cx, "cx")}
-          {F("CY", kind.cy, "cy")}
-          {F("R", kind.r, "r")}
-        </div>
-      );
+    case "Rect":   return <div className="space-y-2">{F("X", kind.x, "x")}{F("Y", kind.y, "y")}{F("W", kind.w, "w")}{F("H", kind.h, "h")}</div>;
+    case "Circle": return <div className="space-y-2">{F("CX", kind.cx, "cx")}{F("CY", kind.cy, "cy")}{F("R", kind.r, "r")}</div>;
     case "Arc":
       return (
-        <div className="space-y-1.5">
-          {F("CX", kind.cx, "cx")}
-          {F("CY", kind.cy, "cy")}
-          {F("R", kind.r, "r")}
-          {F("A0", kind.a0, "a0")}
-          {F("A1", kind.a1, "a1")}
-          <label className="flex items-center gap-2 text-xs">
-            <span className="w-8 text-right opacity-60">Dir</span>
-            <select
-              className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1 py-0.5 text-xs"
+        <div className="space-y-2">
+          {F("CX", kind.cx, "cx")}{F("CY", kind.cy, "cy")}{F("R", kind.r, "r")}
+          {F("A0", kind.a0, "a0")}{F("A1", kind.a1, "a1")}
+          <FieldRow label="Dir">
+            <Dropdown
               value={kind.dir}
-              onChange={(e) =>
-                onChange({ ...kind, dir: e.target.value as "Cw" | "Ccw" })
-              }
-            >
-              <option value="Cw">Clockwise</option>
-              <option value="Ccw">Counter-clockwise</option>
-            </select>
-          </label>
+              onChange={(v) => onChange({ ...kind, dir: v as "Cw" | "Ccw" })}
+              options={[
+                { value: "Cw",  label: "Clockwise"         },
+                { value: "Ccw", label: "Counter-clockwise" },
+              ]}
+            />
+          </FieldRow>
         </div>
       );
-    case "Line":
-      return (
-        <div className="space-y-1.5">
-          {F("X1", kind.x1, "x1")}
-          {F("Y1", kind.y1, "y1")}
-          {F("X2", kind.x2, "x2")}
-          {F("Y2", kind.y2, "y2")}
-        </div>
-      );
+    case "Line":   return <div className="space-y-2">{F("X1", kind.x1, "x1")}{F("Y1", kind.y1, "y1")}{F("X2", kind.x2, "x2")}{F("Y2", kind.y2, "y2")}</div>;
     case "Text":
       return (
-        <div className="space-y-1.5">
-          {F("X", kind.x, "x")}
-          {F("Y", kind.y, "y")}
-          {F("Size", kind.font_size, "font_size")}
-          <BoundValueField
-            label="Text"
-            value={kind.content}
-            vars={vars}
-            onChange={(v) => onChange({ ...kind, content: v })}
-          />
-          <label className="flex items-center gap-2 text-xs">
-            <span className="w-8 text-right opacity-60">Font</span>
-            <input
-              className="flex-1 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 text-xs outline-none"
-              value={kind.font}
-              onChange={(e) => onChange({ ...kind, font: e.target.value })}
-            />
-          </label>
+        <div className="space-y-2">
+          {F("X", kind.x, "x")}{F("Y", kind.y, "y")}{F("Size", kind.font_size, "font_size")}
+          <BoundValueField label="Text" value={kind.content} vars={vars}
+            onChange={(v) => onChange({ ...kind, content: v })} />
+          <FieldRow label="Font">
+            <input className={inputCls} value={kind.font}
+              onChange={(e) => onChange({ ...kind, font: e.target.value })} />
+          </FieldRow>
         </div>
       );
     case "Path":
-      return (
-        <div className="text-xs opacity-50 italic">
-          Path commands ({kind.commands.length} cmds) — edit via code
-        </div>
-      );
+      return <div className="text-xs italic py-2" style={{ color: "#737373" }}>Path ({kind.commands.length} commands) — edit via code</div>;
     case "Group":
-      return (
-        <div className="text-xs opacity-50 italic">
-          Group: {kind.children.length} children
-        </div>
-      );
+      return <div className="text-xs italic py-2" style={{ color: "#737373" }}>Group: {kind.children.length} children</div>;
   }
 }
 
-// ─── Binding tab — shows all BoundValue fields focused on var wiring ─
+// ── Binding fields ─────────────────────────────────────────────────
 
-function BindingFields({
-  kind,
-  onChange,
-  vars,
-}: {
-  kind: ElementKind;
-  onChange: (k: ElementKind) => void;
-  vars: VarEntry[];
-}) {
+function BindingFields({ kind, onChange, vars }: { kind: ElementKind; onChange: (k: ElementKind) => void; vars: VarEntry[] }) {
   const fields: { label: string; key: string; value: BoundValue }[] = [];
-
-  const collect = (label: string, key: string, value: BoundValue) => {
-    fields.push({ label, key, value });
-  };
+  const collect = (label: string, key: string, value: BoundValue) => fields.push({ label, key, value });
 
   switch (kind.type) {
-    case "Rect":
-      collect("X", "x", kind.x);
-      collect("Y", "y", kind.y);
-      collect("Width", "w", kind.w);
-      collect("Height", "h", kind.h);
-      break;
-    case "Circle":
-      collect("Center X", "cx", kind.cx);
-      collect("Center Y", "cy", kind.cy);
-      collect("Radius", "r", kind.r);
-      break;
-    case "Arc":
-      collect("Center X", "cx", kind.cx);
-      collect("Center Y", "cy", kind.cy);
-      collect("Radius", "r", kind.r);
-      collect("Start Angle", "a0", kind.a0);
-      collect("End Angle", "a1", kind.a1);
-      break;
-    case "Line":
-      collect("X1", "x1", kind.x1);
-      collect("Y1", "y1", kind.y1);
-      collect("X2", "x2", kind.x2);
-      collect("Y2", "y2", kind.y2);
-      break;
-    case "Text":
-      collect("X", "x", kind.x);
-      collect("Y", "y", kind.y);
-      collect("Content", "content", kind.content);
-      collect("Font Size", "font_size", kind.font_size);
-      break;
-    case "Path":
-      // Path commands have nested BoundValues — not editable here
-      break;
-    case "Group":
-      // Groups have no direct BoundValues
-      break;
+    case "Rect":   collect("X","x",kind.x); collect("Y","y",kind.y); collect("Width","w",kind.w); collect("Height","h",kind.h); break;
+    case "Circle": collect("Center X","cx",kind.cx); collect("Center Y","cy",kind.cy); collect("Radius","r",kind.r); break;
+    case "Arc":    collect("Center X","cx",kind.cx); collect("Center Y","cy",kind.cy); collect("Radius","r",kind.r); collect("Start°","a0",kind.a0); collect("End°","a1",kind.a1); break;
+    case "Line":   collect("X1","x1",kind.x1); collect("Y1","y1",kind.y1); collect("X2","x2",kind.x2); collect("Y2","y2",kind.y2); break;
+    case "Text":   collect("X","x",kind.x); collect("Y","y",kind.y); collect("Content","content",kind.content); collect("Font Size","font_size",kind.font_size); break;
   }
 
   if (fields.length === 0) {
-    return (
-      <div className="text-xs opacity-40 text-center mt-4">
-        No bindable properties for this element type
-      </div>
-    );
+    return <div className="text-xs italic text-center py-6" style={{ color: "#454545" }}>No bindable properties for this type</div>;
   }
 
   return (
-    <div className="space-y-3">
-      <div className="text-xs opacity-50">
-        Switch any field from a literal value to LVar, AVar, or Expr to drive it
-        from sim data at runtime.
-      </div>
+    <div className="space-y-4">
+      <p className="text-xs leading-5" style={{ color: "#737373" }}>
+        Switch any field to <span style={{ color: "#60a5fa" }}>LVar</span>, <span style={{ color: "#4ade80" }}>AVar</span>, or <span style={{ color: "#c084fc" }}>Expr</span> to drive it from sim data at runtime.
+      </p>
       {fields.map((f) => (
-        <div key={f.key} className="space-y-0.5">
-          <div className="text-[10px] uppercase tracking-wider opacity-40 pl-10">
-            {f.label}
-          </div>
+        <div key={f.key}>
           <BoundValueField
-            label=""
+            label={f.label}
             value={f.value}
             vars={vars}
-            onChange={(v) =>
-              onChange({ ...kind, [f.key]: v } as ElementKind)
-            }
+            onChange={(v) => onChange({ ...kind, [f.key]: v } as ElementKind)}
           />
         </div>
       ))}
-
       {vars.length === 0 && (
-        <div className="text-xs text-amber-400/80 bg-amber-900/20 rounded p-2 mt-2">
-          No variables registered yet. Go to the Variables tab to add LVars or
-          AVars first, then come back here to bind them.
+        <div className="text-xs rounded-lg px-3 py-2.5 mt-2" style={{ background: "rgba(245,158,11,0.1)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.2)" }}>
+          No variables yet. Add them in the Variables tab first.
         </div>
       )}
     </div>
   );
 }
 
-// ─── Main Inspector ────────────────────────────────────────────────
+// ── Inspector ──────────────────────────────────────────────────────
 
 export default function Inspector() {
   const [tab, setTab] = useState<"geo" | "style" | "binding" | "vars">("geo");
@@ -559,9 +380,7 @@ export default function Inspector() {
   const vars = useSceneStore((s) => s.vars);
   const updateElement = useSceneStore((s) => s.updateElement);
 
-  const selected: SceneElement | undefined = scene.elements.find(
-    (e) => e.id === selectedId,
-  );
+  const selected: SceneElement | undefined = scene.elements.find((e) => e.id === selectedId);
 
   const getStyle = (kind: ElementKind): NvgStyle | null => {
     if ("style" in kind) return (kind as any).style;
@@ -571,56 +390,53 @@ export default function Inspector() {
   const handleKindChange = (newKind: ElementKind) => {
     if (selected) updateElement(selected.id, newKind);
   };
-
   const handleStyleChange = (newStyle: NvgStyle) => {
     if (!selected) return;
-    const kind = { ...selected.kind, style: newStyle } as ElementKind;
-    updateElement(selected.id, kind);
+    updateElement(selected.id, { ...selected.kind, style: newStyle } as ElementKind);
   };
 
   const tabs = [
-    { key: "geo" as const, label: "Geometry" },
-    { key: "style" as const, label: "Style" },
-    { key: "binding" as const, label: "Binding" },
-    { key: "vars" as const, label: "Variables" },
+    { key: "geo"     as const, label: "Geometry" },
+    { key: "style"   as const, label: "Style"    },
+    { key: "binding" as const, label: "Binding"  },
+    { key: "vars"    as const, label: "Variables"},
   ];
 
   return (
-    <div className="w-[280px] flex flex-col border-l border-[#2a2a4a] bg-[#16213e]">
+    <div className="flex flex-col shrink-0" style={{ width: 288, background: "#080808", borderLeft: "1px solid #111111" }}>
       {/* Tab bar */}
-      <div className="flex border-b border-[#2a2a4a]">
+      <div className="flex shrink-0" style={{ height: 42, borderBottom: "1px solid #111111" }}>
         {tabs.map((t) => (
           <button
             key={t.key}
-            className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${
-              tab === t.key
-                ? "text-[#e94560] border-b-2 border-[#e94560]"
-                : "opacity-50 hover:opacity-80"
-            }`}
+            className="flex-1 text-[10px] font-semibold uppercase tracking-wider transition-colors relative"
+            style={{ color: tab === t.key ? "#6366f1" : "#454545", background: "transparent" }}
             onClick={() => setTab(t.key)}
           >
             {t.label}
+            {tab === t.key && (
+              <span className="absolute bottom-0 left-0 right-0" style={{ height: 2, background: "#6366f1", borderRadius: "2px 2px 0 0" }} />
+            )}
           </button>
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
         {tab === "vars" ? (
           <VarPanel />
         ) : !selected ? (
-          <div className="text-xs opacity-40 text-center mt-8">
-            Select an element to inspect
+          <div className="flex flex-col items-center justify-center h-32 gap-2">
+            <span style={{ fontSize: 28, opacity: 0.1 }}>◈</span>
+            <span className="text-xs" style={{ color: "#454545" }}>Select an element to inspect</span>
           </div>
         ) : tab === "geo" ? (
           <>
-            <div className="text-xs font-semibold opacity-60">
-              {selected.kind.type}: {selected.name}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#454545" }}>{selected.kind.type}</span>
+              <span className="text-xs truncate" style={{ color: "#737373" }}>{selected.name}</span>
             </div>
-            <GeometryFields
-              kind={selected.kind}
-              onChange={handleKindChange}
-              vars={vars}
-            />
+            <GeometryFields kind={selected.kind} onChange={handleKindChange} vars={vars} />
           </>
         ) : tab === "style" ? (
           (() => {
@@ -628,22 +444,16 @@ export default function Inspector() {
             return style ? (
               <StyleEditor style={style} onChange={handleStyleChange} />
             ) : (
-              <div className="text-xs opacity-40 text-center mt-4">
-                No style for this element type
-              </div>
+              <div className="text-xs italic text-center py-6" style={{ color: "#454545" }}>No style properties for this element type</div>
             );
           })()
         ) : (
-          /* binding tab */
           <>
-            <div className="text-xs font-semibold opacity-60">
-              Bindings: {selected.name}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#454545" }}>Bindings</span>
+              <span className="text-xs truncate" style={{ color: "#737373" }}>{selected.name}</span>
             </div>
-            <BindingFields
-              kind={selected.kind}
-              onChange={handleKindChange}
-              vars={vars}
-            />
+            <BindingFields kind={selected.kind} onChange={handleKindChange} vars={vars} />
           </>
         )}
       </div>

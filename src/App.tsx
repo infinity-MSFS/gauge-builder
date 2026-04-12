@@ -5,6 +5,43 @@ import LayerList from "./components/LayerList";
 import Inspector from "./components/Inspector";
 import BuildPanel from "./components/BuildPanel";
 
+// ── Shared primitives ──────────────────────────────────────────────
+
+function Sep() {
+  return <div className="w-px h-4 bg-[#262626] mx-1 shrink-0" />;
+}
+
+function ToolBtn({
+  onClick,
+  title,
+  children,
+  variant = "ghost",
+}: {
+  onClick?: () => void;
+  title?: string;
+  children: React.ReactNode;
+  variant?: "ghost" | "primary" | "danger";
+}) {
+  const base = "inline-flex items-center gap-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer select-none";
+  const sizes = {
+    ghost:   "px-2.5 py-1",
+    primary: "px-3 py-1.5",
+    danger:  "px-2.5 py-1",
+  };
+  const styles = {
+    ghost:   "text-[#a0a0a0] hover:text-[#e8e8e8] hover:bg-[rgba(255,255,255,0.06)]",
+    primary: "bg-[#6366f1] hover:bg-[#818cf8] text-white",
+    danger:  "text-[#a0a0a0] hover:text-[#ef4444] hover:bg-[rgba(239,68,68,0.1)]",
+  };
+  return (
+    <button className={`${base} ${sizes[variant]} ${styles[variant]}`} onClick={onClick} title={title}>
+      {children}
+    </button>
+  );
+}
+
+// ── Toolbar ────────────────────────────────────────────────────────
+
 function Toolbar() {
   const scene = useSceneStore((s) => s.scene);
   const setGaugeMeta = useSceneStore((s) => s.setGaugeMeta);
@@ -26,91 +63,87 @@ function Toolbar() {
     setHeight(scene.height);
   }, [scene.gauge_name, scene.width, scene.height]);
 
-  const applyMeta = () => {
-    setGaugeMeta(gaugeName, width, height);
-  };
+  const applyMeta = () => setGaugeMeta(gaugeName, width, height);
 
   const handlePreviewCode = async () => {
     await fetchCodegenPreview();
     setShowCodePreview(true);
   };
 
+  const inputCls =
+    "bg-[#0f0f0f] border border-[#181818] rounded-md text-[#e8e8e8] text-xs px-2.5 py-1.5 outline-none focus:border-[#6366f1] transition-colors";
+
   return (
     <>
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-[#16213e] border-b border-[#2a2a4a] text-xs">
-        <label className="flex items-center gap-1">
-          <span className="opacity-60">Gauge:</span>
+      <header
+        className="flex items-center gap-1 px-3 shrink-0"
+        style={{ height: 44, background: "#050505", borderBottom: "1px solid #111111" }}
+      >
+        {/* App brand */}
+        <span className="text-xs font-semibold text-[#6366f1] tracking-tight mr-2 select-none">
+          gauge-builder
+        </span>
+
+        <Sep />
+
+        {/* Gauge meta */}
+        <label className="flex items-center gap-1.5">
+          <span className="text-[11px] text-[#737373]">Name</span>
           <input
-            className="w-32 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 outline-none focus:border-[#e94560]"
+            className={`w-28 ${inputCls}`}
             value={gaugeName}
             onChange={(e) => setGaugeName(e.target.value)}
             onBlur={applyMeta}
+            onKeyDown={(e) => e.key === "Enter" && applyMeta()}
+            placeholder="my_gauge"
           />
         </label>
-        <label className="flex items-center gap-1">
-          <span className="opacity-60">W:</span>
+
+        <label className="flex items-center gap-1.5">
+          <span className="text-[11px] text-[#737373]">W</span>
           <input
             type="number"
-            className="w-16 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 outline-none"
+            className={`w-14 ${inputCls}`}
             value={width}
             onChange={(e) => setWidth(parseFloat(e.target.value) || 512)}
             onBlur={applyMeta}
+            onKeyDown={(e) => e.key === "Enter" && applyMeta()}
           />
         </label>
-        <label className="flex items-center gap-1">
-          <span className="opacity-60">H:</span>
+
+        <label className="flex items-center gap-1.5">
+          <span className="text-[11px] text-[#737373]">H</span>
           <input
             type="number"
-            className="w-16 bg-black/30 border border-[#2a2a4a] rounded px-1.5 py-0.5 outline-none"
+            className={`w-14 ${inputCls}`}
             value={height}
             onChange={(e) => setHeight(parseFloat(e.target.value) || 512)}
             onBlur={applyMeta}
+            onKeyDown={(e) => e.key === "Enter" && applyMeta()}
           />
         </label>
 
-        <div className="h-4 w-px bg-[#2a2a4a] mx-1" />
+        <Sep />
 
-        <button
-          className="px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-          onClick={undo}
-          title="Undo (Ctrl+Z)"
-        >
-          ↩
-        </button>
-        <button
-          className="px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-          onClick={redo}
-          title="Redo (Ctrl+Shift+Z)"
-        >
-          ↪
-        </button>
+        <ToolBtn onClick={undo} title="Undo (Ctrl+Z)">↩ Undo</ToolBtn>
+        <ToolBtn onClick={redo} title="Redo (Ctrl+Shift+Z)">↪ Redo</ToolBtn>
 
-        <div className="h-4 w-px bg-[#2a2a4a] mx-1" />
+        <Sep />
 
-        <button
-          className="px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-          onClick={() => saveScene("./scene.ron")}
-        >
-          Save
-        </button>
-        <button
-          className="px-2 py-0.5 bg-white/10 hover:bg-white/20 rounded"
-          onClick={() => loadScene("./scene.ron")}
-        >
-          Load
-        </button>
+        <ToolBtn onClick={() => saveScene("./scene.ron")} title="Save scene">
+          ↓ Save
+        </ToolBtn>
+        <ToolBtn onClick={() => loadScene("./scene.ron")} title="Load scene">
+          ↑ Load
+        </ToolBtn>
 
-        <div className="h-4 w-px bg-[#2a2a4a] mx-1" />
+        <Sep />
 
-        <button
-          className="px-2 py-0.5 bg-purple-900/50 hover:bg-purple-900/80 rounded"
-          onClick={handlePreviewCode}
-        >
-          Preview Code
-        </button>
-      </div>
+        <ToolBtn onClick={handlePreviewCode} variant="primary">
+          ◈ Preview Code
+        </ToolBtn>
+      </header>
 
-      {/* Code preview modal */}
       {showCodePreview && codegenPreview && (
         <CodePreviewModal
           preview={codegenPreview}
@@ -120,6 +153,8 @@ function Toolbar() {
     </>
   );
 }
+
+// ── Code preview modal ─────────────────────────────────────────────
 
 function CodePreviewModal({
   preview,
@@ -131,45 +166,78 @@ function CodePreviewModal({
   const [tab, setTab] = useState<"gauge_rs" | "draw_rs" | "vars_rs" | "cargo_toml">("gauge_rs");
 
   const files = {
-    gauge_rs: { label: "gauge.rs", content: preview.gauge_rs },
-    draw_rs: { label: "draw.rs", content: preview.draw_rs },
-    vars_rs: { label: "vars.rs", content: preview.vars_rs },
-    cargo_toml: { label: "Cargo.toml", content: preview.cargo_toml },
+    gauge_rs:  { label: "gauge.rs",   content: preview.gauge_rs },
+    draw_rs:   { label: "draw.rs",    content: preview.draw_rs },
+    vars_rs:   { label: "vars.rs",    content: preview.vars_rs },
+    cargo_toml:{ label: "Cargo.toml", content: preview.cargo_toml },
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.72)" }}
+      onClick={onClose}
+    >
       <div
-        className="w-[80vw] h-[80vh] bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg flex flex-col shadow-2xl"
+        className="flex flex-col rounded-xl overflow-hidden"
+        style={{
+          width: "80vw",
+          height: "78vh",
+          background: "#080808",
+          border: "1px solid #1a1a1a",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.9)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2a4a]">
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-4"
+          style={{ height: 44, borderBottom: "1px solid #111111", background: "#050505" }}
+        >
           <div className="flex gap-1">
             {(Object.keys(files) as (keyof typeof files)[]).map((key) => (
               <button
                 key={key}
-                className={`px-3 py-1 text-xs rounded ${
-                  tab === key
-                    ? "bg-[#e94560] text-white"
-                    : "bg-white/10 hover:bg-white/20"
-                }`}
+                style={{
+                  padding: "3px 12px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontFamily: "monospace",
+                  background: tab === key ? "#6366f1" : "transparent",
+                  color: tab === key ? "white" : "#737373",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+                className="hover:text-[#e8e8e8]"
                 onClick={() => setTab(key)}
               >
                 {files[key].label}
               </button>
             ))}
           </div>
-          <button className="text-lg hover:text-[#e94560]" onClick={onClose}>
+          <button
+            style={{ color: "#737373", fontSize: 18, lineHeight: 1, cursor: "pointer", padding: "2px 6px" }}
+            className="hover:text-[#ef4444] rounded transition-colors"
+            onClick={onClose}
+            title="Close"
+          >
             ✕
           </button>
         </div>
-        <pre className="flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-green-300/90">
+
+        {/* Code */}
+        <pre
+          className="flex-1 overflow-auto font-mono leading-5"
+          style={{ padding: "16px 20px", fontSize: 12, color: "#a8ff78", background: "#000000" }}
+        >
           {files[tab].content}
         </pre>
       </div>
     </div>
   );
 }
+
+// ── App root ───────────────────────────────────────────────────────
 
 export default function App() {
   const fetchScene = useSceneStore((s) => s.fetchScene);
@@ -180,7 +248,6 @@ export default function App() {
     fetchVars();
   }, []);
 
-  // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
@@ -197,7 +264,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen" style={{ background: "#000000" }}>
       <Toolbar />
       <div className="flex flex-1 min-h-0">
         <LayerList />
