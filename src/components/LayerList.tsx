@@ -4,6 +4,11 @@ import {
   type SceneElement,
   type ElementKindTag,
 } from "../store/sceneStore";
+import {
+  useRefImageStore,
+  refImageElements,
+  type RefImageMeta,
+} from "../store/refImageStore";
 
 const KIND_ICONS: Record<string, string> = {
   Rect:   "▭",
@@ -24,6 +29,8 @@ const KIND_COLORS: Record<string, string> = {
   Path:   "#a78bfa",
   Group:  "#737373",
 };
+
+// ── Scene element layer row ───────────────────────────────────────────
 
 function LayerRow({
   el,
@@ -68,7 +75,6 @@ function LayerRow({
         if (!selected) (e.currentTarget as HTMLElement).style.background = "";
       }}
     >
-      {/* Visibility toggle */}
       <button
         className="shrink-0 w-5 h-5 flex items-center justify-center rounded transition-opacity"
         style={{ color: el.visible ? "#737373" : "#454545", fontSize: 12 }}
@@ -78,7 +84,6 @@ function LayerRow({
         {el.visible ? "◉" : "◎"}
       </button>
 
-      {/* Kind badge */}
       <span
         className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[11px] font-bold"
         style={{ color, background: `${color}18` }}
@@ -87,7 +92,6 @@ function LayerRow({
         {KIND_ICONS[el.kind.type] ?? "?"}
       </span>
 
-      {/* Name */}
       {editing ? (
         <input
           ref={inputRef}
@@ -116,6 +120,138 @@ function LayerRow({
   );
 }
 
+// ── Reference image row ───────────────────────────────────────────────
+
+function RefImageRow({
+  img,
+  selected,
+  onSelect,
+}: {
+  img: RefImageMeta;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const updateImage = useRefImageStore((s) => s.updateImage);
+  const deleteImage = useRefImageStore((s) => s.deleteImage);
+  const setSelectedId = useSceneStore((s) => s.setSelectedId);
+  const [showSlider, setShowSlider] = useState(false);
+
+  return (
+    <div
+      className="select-none"
+      style={{
+        background: selected ? "rgba(245,158,11,0.08)" : undefined,
+        borderLeft: selected ? "2px solid #f59e0b" : "2px solid transparent",
+      }}
+    >
+      {/* Main row */}
+      <div
+        className="flex items-center gap-1.5 px-2.5 cursor-pointer transition-colors"
+        style={{ height: 36 }}
+        onClick={onSelect}
+        onMouseEnter={(e) => {
+          if (!selected) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
+        }}
+        onMouseLeave={(e) => {
+          if (!selected) (e.currentTarget as HTMLElement).style.background = "";
+        }}
+      >
+        {/* Visible */}
+        <button
+          className="shrink-0 w-5 h-5 flex items-center justify-center rounded transition-opacity"
+          style={{ color: img.visible ? "#f59e0b" : "#454545", fontSize: 11 }}
+          onClick={(e) => { e.stopPropagation(); updateImage(img.id, { visible: !img.visible }); }}
+          title={img.visible ? "Hide" : "Show"}
+        >
+          {img.visible ? "◉" : "◎"}
+        </button>
+
+        {/* Lock */}
+        <button
+          className="shrink-0 w-5 h-5 flex items-center justify-center rounded transition-opacity text-[11px]"
+          style={{ color: img.locked ? "#f59e0b" : "#353535" }}
+          onClick={(e) => { e.stopPropagation(); updateImage(img.id, { locked: !img.locked }); }}
+          title={img.locked ? "Unlock" : "Lock position"}
+        >
+          {img.locked ? "⊠" : "⊡"}
+        </button>
+
+        {/* Name */}
+        <span
+          className="flex-1 text-[11px] truncate"
+          style={{ color: selected ? "#e8e8e8" : "#808080" }}
+          title={img.name}
+        >
+          {img.name}
+        </span>
+
+        {/* Opacity badge — click to toggle slider */}
+        <button
+          className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors"
+          style={{
+            color: showSlider ? "#f59e0b" : "#555",
+            background: showSlider ? "rgba(245,158,11,0.1)" : "transparent",
+          }}
+          onClick={(e) => { e.stopPropagation(); setShowSlider(!showSlider); }}
+          title="Adjust opacity"
+        >
+          {Math.round(img.opacity * 100)}%
+        </button>
+
+        {/* Delete */}
+        <button
+          className="shrink-0 w-5 h-5 flex items-center justify-center rounded transition-colors text-[11px]"
+          style={{ color: "#353535" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#353535"; (e.currentTarget as HTMLElement).style.background = ""; }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (selected) setSelectedId(null);
+            deleteImage(img.id);
+          }}
+          title="Remove reference"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Opacity slider (expanded) */}
+      {showSlider && (
+        <div
+          className="flex items-center gap-2 px-3 pb-2 pt-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="text-[10px] shrink-0" style={{ color: "#555" }}>Opacity</span>
+          <input
+            type="range"
+            min={0} max={1} step={0.01}
+            value={img.opacity}
+            className="flex-1"
+            onChange={(e) => updateImage(img.id, { opacity: parseFloat(e.target.value) })}
+          />
+          <input
+            type="number"
+            min={0} max={100} step={1}
+            className="w-12 text-right text-[10px] font-mono"
+            style={{
+              background: "#0f0f0f",
+              border: "1px solid #181818",
+              borderRadius: 4,
+              color: "#e8e8e8",
+              padding: "2px 4px",
+              outline: "none",
+            }}
+            value={Math.round(img.opacity * 100)}
+            onChange={(e) => updateImage(img.id, { opacity: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) / 100 })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main LayerList ────────────────────────────────────────────────────
+
 export default function LayerList() {
   const scene = useSceneStore((s) => s.scene);
   const selectedId = useSceneStore((s) => s.selectedId);
@@ -126,7 +262,12 @@ export default function LayerList() {
   const renameElement = useSceneStore((s) => s.renameElement);
   const reorderElements = useSceneStore((s) => s.reorderElements);
 
+  const refImages = useRefImageStore((s) => s.images);
+  const deleteRefImage = useRefImageStore((s) => s.deleteImage);
+
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [refCollapsed, setRefCollapsed] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragIdx = useRef<number | null>(null);
 
   const kinds: ElementKindTag[] = ["Rect", "Circle", "Arc", "Line", "Text", "Path", "Group"];
@@ -140,12 +281,45 @@ export default function LayerList() {
     dragIdx.current = null;
   };
 
+  const loadRefImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const src = ev.target!.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const sc = useSceneStore.getState().scene;
+        const scale = Math.min(sc.width / img.width, sc.height / img.height, 1);
+        const w = img.width * scale, h = img.height * scale;
+        const id = `ref_${Date.now()}`;
+        const name = file.name.length > 24 ? file.name.slice(0, 21) + '...' : file.name;
+
+        refImageElements.set(id, img);
+        useRefImageStore.getState().addImage({
+          id, name,
+          x: (sc.width - w) / 2,
+          y: (sc.height - h) / 2,
+          w, h,
+          opacity: 0.5,
+          locked: false,
+          visible: true,
+        });
+        setSelectedId(id);
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Is selected item a ref image?
+  const isRefSelected = selectedId ? refImages.some(i => i.id === selectedId) : false;
+  const isElSelected = selectedId ? scene.elements.some(e => e.id === selectedId) : false;
+
   return (
     <div
       className="flex flex-col shrink-0"
       style={{ width: 220, background: "#080808", borderRight: "1px solid #111111" }}
     >
-      {/* Header */}
+      {/* ── Elements header ── */}
       <div
         className="flex items-center justify-between px-3 shrink-0"
         style={{ height: 42, borderBottom: "1px solid #111111" }}
@@ -165,7 +339,6 @@ export default function LayerList() {
 
           {showAddMenu && (
             <>
-              {/* Backdrop */}
               <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
               <div
                 className="absolute right-0 top-full mt-1.5 z-50 rounded-lg overflow-hidden py-1"
@@ -192,8 +365,8 @@ export default function LayerList() {
         </div>
       </div>
 
-      {/* Layer list */}
-      <div className="flex-1 overflow-y-auto">
+      {/* ── Element list ── */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         {scene.elements.map((el, idx) => (
           <LayerRow
             key={el.id}
@@ -209,7 +382,7 @@ export default function LayerList() {
         ))}
 
         {scene.elements.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 py-10 px-4 text-center">
+          <div className="flex flex-col items-center justify-center gap-2 py-8 px-4 text-center">
             <span style={{ fontSize: 28, opacity: 0.15 }}>⊞</span>
             <span className="text-xs" style={{ color: "#454545" }}>
               No elements yet.
@@ -219,22 +392,94 @@ export default function LayerList() {
         )}
       </div>
 
-      {/* Delete button */}
-      {selectedId && (
+      {/* ── Reference images section ── */}
+      <div style={{ borderTop: "1px solid #111111" }}>
+        <div
+          className="flex items-center justify-between px-3 shrink-0"
+          style={{ height: 36 }}
+        >
+          <button
+            className="flex items-center gap-1.5 text-[10px] font-semibold tracking-widest uppercase transition-colors"
+            style={{ color: "#454545" }}
+            onClick={() => setRefCollapsed(!refCollapsed)}
+          >
+            <span style={{ fontSize: 9, color: "#353535" }}>{refCollapsed ? "▸" : "▾"}</span>
+            Reference
+            {refImages.length > 0 && (
+              <span
+                className="text-[9px] font-bold px-1.5 rounded-full"
+                style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}
+              >
+                {refImages.length}
+              </span>
+            )}
+          </button>
+
+          <label
+            className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-colors cursor-pointer"
+            style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#f59e0b"; (e.currentTarget as HTMLElement).style.color = "white"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.1)"; (e.currentTarget as HTMLElement).style.color = "#f59e0b"; }}
+            title="Add reference image"
+          >
+            + Img
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={e => {
+                if (e.target.files?.[0]) loadRefImage(e.target.files[0]);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+
+        {!refCollapsed && (
+          <div className="pb-1">
+            {refImages.map((img) => (
+              <RefImageRow
+                key={img.id}
+                img={img}
+                selected={selectedId === img.id}
+                onSelect={() => setSelectedId(img.id)}
+              />
+            ))}
+
+            {refImages.length === 0 && (
+              <div className="flex flex-col items-center gap-1.5 py-4 px-4 text-center">
+                <span className="text-[10px]" style={{ color: "#353535" }}>
+                  Drop an image on canvas
+                  <br />or click <strong style={{ color: "#f59e0b" }}>+ Img</strong>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Delete button ── */}
+      {selectedId && (isElSelected || isRefSelected) && (
         <div className="px-3 py-2.5 shrink-0" style={{ borderTop: "1px solid #111111" }}>
           <button
             className="w-full text-xs py-1.5 rounded-md font-medium transition-colors"
             style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.2)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
-            onClick={() => deleteElement(selectedId)}
+            onClick={() => {
+              if (isRefSelected) {
+                deleteRefImage(selectedId);
+                setSelectedId(null);
+              } else {
+                deleteElement(selectedId);
+              }
+            }}
           >
-            Delete Selected
+            {isRefSelected ? "Remove Reference" : "Delete Selected"}
           </button>
         </div>
       )}
     </div>
   );
 }
-
-

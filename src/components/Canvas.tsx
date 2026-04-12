@@ -7,6 +7,11 @@ import {
   type NvgStyle,
   type BoundColor,
 } from "../store/sceneStore";
+import {
+  useRefImageStore,
+  refImageElements,
+  type RefImageMeta,
+} from "../store/refImageStore";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -15,19 +20,13 @@ interface BBox     { x: number; y: number; w: number; h: number }
 
 type ResizeHandle = 'tl' | 'tc' | 'tr' | 'ml' | 'mr' | 'bl' | 'bc' | 'br';
 
-interface BgImage {
-  id: string;
-  el: HTMLImageElement;
-  x: number; y: number; w: number; h: number;
-}
-
 type DragMode =
   | { t: 'none' }
   | { t: 'pan';        sx0: number; sy0: number; px0: number; py0: number }
   | { t: 'move-el';    id: string; sx0: number; sy0: number; k0: ElementKind }
   | { t: 'resize-el';  id: string; h: ResizeHandle; sx0: number; sy0: number; k0: ElementKind; bbox0: BBox }
   | { t: 'move-img';   id: string; sx0: number; sy0: number; x0: number; y0: number }
-  | { t: 'resize-img'; id: string; h: ResizeHandle; sx0: number; sy0: number; img0: BgImage };
+  | { t: 'resize-img'; id: string; h: ResizeHandle; sx0: number; sy0: number; img0: RefImageMeta };
 
 // ─── BoundValue helpers ───────────────────────────────────────────────
 
@@ -256,6 +255,7 @@ function drawSelectionOverlay(
   bbox: BBox,
   vp: Viewport,
   kind: ElementKind | null,
+  isRefImage?: boolean,
 ) {
   const sx = bbox.x * vp.zoom + vp.panX;
   const sy = bbox.y * vp.zoom + vp.panY;
@@ -263,15 +263,17 @@ function drawSelectionOverlay(
   const sh = bbox.h * vp.zoom;
 
   ctx.save();
-  ctx.strokeStyle = '#6366f1';
+  ctx.strokeStyle = isRefImage ? '#f59e0b' : '#6366f1';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 3]);
   ctx.strokeRect(sx, sy, sw, sh);
   ctx.setLineDash([]);
 
-  // Which handles to show per shape
   let handles = getHandles(bbox, vp);
-  if (kind?.type === 'Circle' || kind?.type === 'Arc') {
+  if (isRefImage) {
+    // Corner handles only for aspect-ratio-locked resize
+    handles = handles.filter(h => h.handle === 'tl' || h.handle === 'tr' || h.handle === 'bl' || h.handle === 'br');
+  } else if (kind?.type === 'Circle' || kind?.type === 'Arc') {
     handles = handles.filter(h => h.handle === 'mr');
   } else if (kind?.type === 'Line') {
     handles = handles.filter(h => h.handle === 'tl' || h.handle === 'br');
@@ -284,7 +286,7 @@ function drawSelectionOverlay(
     ctx.arc(hx, hy, HANDLE_R, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
-    ctx.strokeStyle = '#6366f1';
+    ctx.strokeStyle = isRefImage ? '#f59e0b' : '#6366f1';
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
@@ -299,24 +301,20 @@ export default function Canvas() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const zoomLabelRef = useRef<HTMLSpanElement>(null);
 
-  // ── All mutable state in refs (no stale closures, no re-renders on every frame) ──
-
   // Mirror store state into refs
   const sceneRef      = useRef(useSceneStore.getState().scene);
   const varsRef       = useRef(useSceneStore.getState().vars);
   const selectedIdRef = useRef(useSceneStore.getState().selectedId);
+  const refImagesRef  = useRef(useRefImageStore.getState().images);
 
   // Viewport
   const vpRef   = useRef<Viewport>({ panX: 0, panY: 0, zoom: 1 });
   // Interaction
   const dragRef      = useRef<DragMode>({ t: 'none' });
-  const localKindRef = useRef<ElementKind | null>(null);  // live override during element drag
-  const localBgRef   = useRef<BgImage | null>(null);       // live override during image drag
+  const localKindRef = useRef<ElementKind | null>(null);
+  const localImgRef  = useRef<RefImageMeta | null>(null);
   const spaceRef     = useRef(false);
-  // Background images (purely local, not in scene store)
-  const bgImgsRef    = useRef<BgImage[]>([]);
 
-  // Only used to force a React re-render for overlay buttons (rare)
   const [, forceUpdate] = useReducer(x => x + 1, 0);
 
   // ── Draw ─────────────────────────────────────────────────────────────
@@ -330,6 +328,7 @@ export default function Canvas() {
     const scene      = sceneRef.current;
     const vp         = vpRef.current;
     const selectedId = selectedIdRef.current;
+    const refImages  = refImagesRef.current;
     const W = canvas.width, H = canvas.height;
 
     const varMap = new Map<string, number>();
@@ -338,7 +337,6 @@ export default function Canvas() {
     // ── Background ──
     ctx.clearRect(0, 0, W, H);
 
-    // Subtle checkerboard outside scene area
     const tileSize = Math.max(8, 24 * vp.zoom);
     ctx.fillStyle = '#060606';
     ctx.fillRect(0, 0, W, H);
@@ -359,15 +357,6 @@ export default function Canvas() {
     ctx.fillStyle = '#111111';
     ctx.fillRect(0, 0, scene.width, scene.height);
 
-    // Reference images (behind scene elements)
-    for (const img of bgImgsRef.current) {
-      const live = localBgRef.current?.id === img.id ? localBgRef.current! : img;
-      ctx.save();
-      ctx.globalAlpha = 0.85;
-      ctx.drawImage(live.el, live.x, live.y, live.w, live.h);
-      ctx.restore();
-    }
-
     // Scene elements
     for (const el of scene.elements) {
       if (!el.visible) continue;
@@ -377,14 +366,26 @@ export default function Canvas() {
       drawElement(ctx, overrideKind ? { ...el, kind: overrideKind } : el, varMap);
     }
 
+    // Reference images (in front of elements, with per-image opacity)
+    for (const img of refImages) {
+      if (!img.visible) continue;
+      const el = refImageElements.get(img.id);
+      if (!el) continue;
+      const live = localImgRef.current?.id === img.id ? localImgRef.current : img;
+      ctx.save();
+      ctx.globalAlpha = live.opacity;
+      ctx.drawImage(el, live.x, live.y, live.w, live.h);
+      ctx.restore();
+    }
+
     ctx.restore();
 
-    // ── Selection overlay (screen-space, outside transform) ──
+    // ── Selection overlay (screen-space) ──
     if (selectedId) {
-      const bgImg = bgImgsRef.current.find(i => i.id === selectedId);
-      if (bgImg) {
-        const live = localBgRef.current?.id === bgImg.id ? localBgRef.current! : bgImg;
-        drawSelectionOverlay(ctx, { x: live.x, y: live.y, w: live.w, h: live.h }, vp, null);
+      const refImg = refImages.find(i => i.id === selectedId);
+      if (refImg) {
+        const live = localImgRef.current?.id === refImg.id ? localImgRef.current : refImg;
+        drawSelectionOverlay(ctx, { x: live.x, y: live.y, w: live.w, h: live.h }, vp, null, true);
       } else {
         const el = scene.elements.find(e => e.id === selectedId);
         if (el) {
@@ -395,21 +396,25 @@ export default function Canvas() {
       }
     }
 
-    // Update zoom label directly (avoids React re-render)
     if (zoomLabelRef.current) {
       zoomLabelRef.current.textContent = `${Math.round(vp.zoom * 100)}%`;
     }
   };
 
-  // ── Store subscription ────────────────────────────────────────────────
+  // ── Store subscriptions ──────────────────────────────────────────────
 
   useEffect(() => {
-    return useSceneStore.subscribe(state => {
+    const unsub1 = useSceneStore.subscribe(state => {
       sceneRef.current      = state.scene;
       varsRef.current       = state.vars;
       selectedIdRef.current = state.selectedId;
       draw();
     });
+    const unsub2 = useRefImageStore.subscribe(state => {
+      refImagesRef.current = state.images;
+      draw();
+    });
+    return () => { unsub1(); unsub2(); };
   }, []);
 
   // ── ResizeObserver ────────────────────────────────────────────────────
@@ -455,7 +460,7 @@ export default function Canvas() {
     return () => clearTimeout(id);
   }, []);
 
-  // ── Wheel zoom (needs non-passive listener for preventDefault) ────────
+  // ── Wheel zoom ────────────────────────────────────────────────────────
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -503,10 +508,11 @@ export default function Canvas() {
     return null;
   };
 
-  const hitBgImage = (sx: number, sy: number): string | null => {
-    const imgs = bgImgsRef.current;
+  const hitRefImage = (sx: number, sy: number): string | null => {
+    const imgs = refImagesRef.current;
     for (let i = imgs.length - 1; i >= 0; i--) {
       const img = imgs[i];
+      if (!img.visible || img.locked) continue;
       if (sx >= img.x && sx <= img.x + img.w && sy >= img.y && sy <= img.y + img.h) return img.id;
     }
     return null;
@@ -515,11 +521,16 @@ export default function Canvas() {
   const getBBoxForSelected = (id: string): BBox | null => {
     const varMap = new Map<string, number>();
     for (const v of varsRef.current) varMap.set(v.id, v.preview_value);
-    const bgImg = bgImgsRef.current.find(i => i.id === id);
-    if (bgImg) return { x: bgImg.x, y: bgImg.y, w: bgImg.w, h: bgImg.h };
+    const refImg = refImagesRef.current.find(i => i.id === id);
+    if (refImg) return { x: refImg.x, y: refImg.y, w: refImg.w, h: refImg.h };
     const el = sceneRef.current.elements.find(e => e.id === id);
     if (el) return getElementBBox(el, varMap);
     return null;
+  };
+
+  const isRefImageLocked = (id: string): boolean => {
+    const img = refImagesRef.current.find(i => i.id === id);
+    return img?.locked ?? false;
   };
 
   const setCursor = (c: string) => {
@@ -532,7 +543,7 @@ export default function Canvas() {
     const selId = selectedIdRef.current;
     if (selId) {
       const bbox = getBBoxForSelected(selId);
-      if (bbox) {
+      if (bbox && !isRefImageLocked(selId)) {
         const handle = hitHandle(mx, my, bbox, vpRef.current);
         if (handle) { setCursor(handleCursors[handle]); return; }
         if (sx >= bbox.x && sx <= bbox.x + bbox.w && sy >= bbox.y && sy <= bbox.y + bbox.h) {
@@ -540,7 +551,7 @@ export default function Canvas() {
         }
       }
     }
-    if (hitElement(sx, sy) || hitBgImage(sx, sy)) { setCursor('pointer'); return; }
+    if (hitElement(sx, sy) || hitRefImage(sx, sy)) { setCursor('pointer'); return; }
     setCursor('default');
   };
 
@@ -551,7 +562,6 @@ export default function Canvas() {
     const { mx, my, sx, sy } = getMousePos(e);
     const vp = vpRef.current;
 
-    // Middle button or space → pan
     if (e.button === 1 || spaceRef.current) {
       dragRef.current = { t: 'pan', sx0: mx, sy0: my, px0: vp.panX, py0: vp.panY };
       setCursor('grabbing');
@@ -562,21 +572,21 @@ export default function Canvas() {
     const varMap = new Map<string, number>();
     for (const v of varsRef.current) varMap.set(v.id, v.preview_value);
 
-    // Check resize/move handles on currently selected item first
+    // Check resize/move on selected
     if (selId) {
-      const bgImg = bgImgsRef.current.find(i => i.id === selId);
-      if (bgImg) {
-        const bbox = { x: bgImg.x, y: bgImg.y, w: bgImg.w, h: bgImg.h };
+      const refImg = refImagesRef.current.find(i => i.id === selId);
+      if (refImg && !refImg.locked) {
+        const bbox = { x: refImg.x, y: refImg.y, w: refImg.w, h: refImg.h };
         const handle = hitHandle(mx, my, bbox, vp);
         if (handle) {
-          dragRef.current = { t: 'resize-img', id: selId, h: handle, sx0: sx, sy0: sy, img0: { ...bgImg } };
+          dragRef.current = { t: 'resize-img', id: selId, h: handle, sx0: sx, sy0: sy, img0: { ...refImg } };
           return;
         }
-        if (sx >= bgImg.x && sx <= bgImg.x + bgImg.w && sy >= bgImg.y && sy <= bgImg.y + bgImg.h) {
-          dragRef.current = { t: 'move-img', id: selId, sx0: sx, sy0: sy, x0: bgImg.x, y0: bgImg.y };
+        if (sx >= refImg.x && sx <= refImg.x + refImg.w && sy >= refImg.y && sy <= refImg.y + refImg.h) {
+          dragRef.current = { t: 'move-img', id: selId, sx0: sx, sy0: sy, x0: refImg.x, y0: refImg.y };
           return;
         }
-      } else {
+      } else if (!refImg) {
         const el = sceneRef.current.elements.find(e => e.id === selId);
         if (el) {
           const bbox = getElementBBox(el, varMap);
@@ -595,15 +605,7 @@ export default function Canvas() {
       }
     }
 
-    // Hit-test for new selection
-    const bgHit = hitBgImage(sx, sy);
-    if (bgHit) {
-      useSceneStore.getState().setSelectedId(bgHit);
-      const img = bgImgsRef.current.find(i => i.id === bgHit)!;
-      dragRef.current = { t: 'move-img', id: bgHit, sx0: sx, sy0: sy, x0: img.x, y0: img.y };
-      return;
-    }
-
+    // Hit-test new selection (elements first, then unlocked ref images)
     const elHit = hitElement(sx, sy);
     if (elHit) {
       useSceneStore.getState().setSelectedId(elHit);
@@ -612,11 +614,17 @@ export default function Canvas() {
       return;
     }
 
-    // Clicked empty space → deselect
+    const imgHit = hitRefImage(sx, sy);
+    if (imgHit) {
+      useSceneStore.getState().setSelectedId(imgHit);
+      const img = refImagesRef.current.find(i => i.id === imgHit)!;
+      dragRef.current = { t: 'move-img', id: imgHit, sx0: sx, sy0: sy, x0: img.x, y0: img.y };
+      return;
+    }
+
     useSceneStore.getState().setSelectedId(null);
   };
 
-  // Use a ref so global listeners always call the latest function body
   const globalMoveRef = useRef<(e: MouseEvent) => void>(() => {});
   const globalUpRef   = useRef<(e: MouseEvent) => void>(() => {});
 
@@ -643,21 +651,33 @@ export default function Canvas() {
       return;
     }
     if (drag.t === 'move-img') {
-      const img = bgImgsRef.current.find(i => i.id === drag.id)!;
-      localBgRef.current = { ...img, x: drag.x0 + (sx - drag.sx0), y: drag.y0 + (sy - drag.sy0) };
+      const img = refImagesRef.current.find(i => i.id === drag.id)!;
+      localImgRef.current = { ...img, x: drag.x0 + (sx - drag.sx0), y: drag.y0 + (sy - drag.sy0) };
       draw();
       return;
     }
     if (drag.t === 'resize-img') {
       const init = drag.img0;
-      let { x, y, w, h } = init;
-      const dx = sx - drag.sx0, dy = sy - drag.sy0;
-      if (drag.h === 'tl' || drag.h === 'tc' || drag.h === 'tr') { y += dy; h -= dy; }
-      if (drag.h === 'bl' || drag.h === 'bc' || drag.h === 'br') { h += dy; }
-      if (drag.h === 'tl' || drag.h === 'ml' || drag.h === 'bl') { x += dx; w -= dx; }
-      if (drag.h === 'tr' || drag.h === 'mr' || drag.h === 'br') { w += dx; }
-      w = Math.max(10, w); h = Math.max(10, h);
-      localBgRef.current = { ...init, x, y, w, h };
+      const aspect = init.w / init.h;
+      const ddx = sx - drag.sx0;
+
+      // Corner-only, aspect-locked resize
+      let dw = 0;
+      if (drag.h === 'br' || drag.h === 'tr') { dw = ddx; }
+      else if (drag.h === 'bl' || drag.h === 'tl') { dw = -ddx; }
+
+      const newW = Math.max(10, init.w + dw);
+      const newH = Math.max(10, newW / aspect);
+      const actualDw = newW - init.w;
+      const actualDh = newH - init.h;
+
+      let nx = init.x, ny = init.y;
+      if (drag.h === 'tl') { nx -= actualDw; ny -= actualDh; }
+      else if (drag.h === 'bl') { nx -= actualDw; }
+      else if (drag.h === 'tr') { ny -= actualDh; }
+      // br: origin stays
+
+      localImgRef.current = { ...init, x: nx, y: ny, w: newW, h: newH };
       draw();
       return;
     }
@@ -670,7 +690,6 @@ export default function Canvas() {
     if (drag.t === 'move-el' || drag.t === 'resize-el') {
       const finalKind = localKindRef.current;
       if (finalKind) {
-        // Optimistic local update to avoid flash while Tauri round-trips
         sceneRef.current = {
           ...sceneRef.current,
           elements: sceneRef.current.elements.map(el =>
@@ -684,11 +703,10 @@ export default function Canvas() {
     }
 
     if (drag.t === 'move-img' || drag.t === 'resize-img') {
-      if (localBgRef.current) {
-        bgImgsRef.current = bgImgsRef.current.map(img =>
-          img.id === drag.id ? localBgRef.current! : img
-        );
-        localBgRef.current = null;
+      if (localImgRef.current) {
+        const { id, x, y, w, h } = localImgRef.current;
+        useRefImageStore.getState().updateImage(id, { x, y, w, h });
+        localImgRef.current = null;
         draw();
       }
     }
@@ -707,7 +725,6 @@ export default function Canvas() {
     };
   }, []);
 
-  // Hover cursor (only when not actively dragging)
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (dragRef.current.t === 'none') {
       const { mx, my, sx, sy } = getMousePos(e);
@@ -730,11 +747,10 @@ export default function Canvas() {
       if ((e.code === 'Delete' || e.code === 'Backspace') && !inInput) {
         const selId = selectedIdRef.current;
         if (!selId) return;
-        const isBg = bgImgsRef.current.some(i => i.id === selId);
-        if (isBg) {
-          bgImgsRef.current = bgImgsRef.current.filter(i => i.id !== selId);
+        const isRef = refImagesRef.current.some(i => i.id === selId);
+        if (isRef) {
+          useRefImageStore.getState().deleteImage(selId);
           useSceneStore.getState().setSelectedId(null);
-          draw();
           forceUpdate();
         } else {
           useSceneStore.getState().deleteElement(selId);
@@ -759,7 +775,7 @@ export default function Canvas() {
     };
   }, []);
 
-  // ── Background image loader ───────────────────────────────────────────
+  // ── Image loader (exported for use by LayerList) ──────────────────────
 
   const loadImageFile = (file: File) => {
     const reader = new FileReader();
@@ -770,16 +786,21 @@ export default function Canvas() {
         const scene  = sceneRef.current;
         const scale  = Math.min(scene.width / img.width, scene.height / img.height, 1);
         const w = img.width * scale, h = img.height * scale;
-        const bgImg: BgImage = {
-          id: `bgimg_${Date.now()}`,
-          el: img,
+        const id = `ref_${Date.now()}`;
+        const name = file.name.length > 24 ? file.name.slice(0, 21) + '...' : file.name;
+
+        refImageElements.set(id, img);
+        useRefImageStore.getState().addImage({
+          id,
+          name,
           x: (scene.width  - w) / 2,
           y: (scene.height - h) / 2,
           w, h,
-        };
-        bgImgsRef.current = [...bgImgsRef.current, bgImg];
-        useSceneStore.getState().setSelectedId(bgImg.id);
-        draw();
+          opacity: 0.5,
+          locked: false,
+          visible: true,
+        });
+        useSceneStore.getState().setSelectedId(id);
         forceUpdate();
       };
       img.src = src;
@@ -825,16 +846,16 @@ export default function Canvas() {
           onClick={fitScene}
           title="Fit scene to viewport (Ctrl+F)"
         >
-          ⊡ Fit
+          Fit
         </button>
         <label
           className="text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors cursor-pointer"
           style={{ background: 'rgba(8,8,8,0.9)', border: '1px solid #1c1c1c', color: '#606060', backdropFilter: 'blur(8px)' }}
           onMouseEnter={e => (e.currentTarget.style.color = '#e8e8e8')}
           onMouseLeave={e => (e.currentTarget.style.color = '#606060')}
-          title="Load reference image (or drag & drop onto canvas)"
+          title="Add reference image (or drag & drop)"
         >
-          🖼 Image
+          + Ref
           <input
             ref={fileInputRef}
             type="file"
@@ -862,7 +883,7 @@ export default function Canvas() {
         className="absolute bottom-2 left-3 text-[11px] select-none pointer-events-none"
         style={{ color: '#1e1e1e' }}
       >
-        Scroll to zoom · Middle-click or Space+drag to pan · Delete to remove
+        Scroll to zoom · Space+drag to pan · Drop image for reference
       </span>
     </div>
   );
