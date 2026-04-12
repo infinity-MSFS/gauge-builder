@@ -6,9 +6,9 @@ import {
 } from "../store/sceneStore";
 import {
   useRefImageStore,
-  refImageElements,
   type RefImageMeta,
 } from "../store/refImageStore";
+import { pickRefImageViaDialog } from "../store/refImageLoader";
 
 const KIND_ICONS: Record<string, string> = {
   Rect:   "▭",
@@ -267,7 +267,6 @@ export default function LayerList() {
 
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [refCollapsed, setRefCollapsed] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragIdx = useRef<number | null>(null);
 
   const kinds: ElementKindTag[] = ["Rect", "Circle", "Arc", "Line", "Text", "Path", "Group"];
@@ -281,33 +280,12 @@ export default function LayerList() {
     dragIdx.current = null;
   };
 
-  const loadRefImage = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const src = ev.target!.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const sc = useSceneStore.getState().scene;
-        const scale = Math.min(sc.width / img.width, sc.height / img.height, 1);
-        const w = img.width * scale, h = img.height * scale;
-        const id = `ref_${Date.now()}`;
-        const name = file.name.length > 24 ? file.name.slice(0, 21) + '...' : file.name;
-
-        refImageElements.set(id, img);
-        useRefImageStore.getState().addImage({
-          id, name,
-          x: (sc.width - w) / 2,
-          y: (sc.height - h) / 2,
-          w, h,
-          opacity: 0.5,
-          locked: false,
-          visible: true,
-        });
-        setSelectedId(id);
-      };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
+  const handlePickRefImage = async () => {
+    try {
+      await pickRefImageViaDialog();
+    } catch (err) {
+      console.error('Failed to load reference image:', err);
+    }
   };
 
   // Is selected item a ref image?
@@ -415,25 +393,16 @@ export default function LayerList() {
             )}
           </button>
 
-          <label
-            className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-colors cursor-pointer"
+          <button
+            className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-colors"
             style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#f59e0b"; (e.currentTarget as HTMLElement).style.color = "white"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.1)"; (e.currentTarget as HTMLElement).style.color = "#f59e0b"; }}
-            title="Add reference image"
+            onClick={handlePickRefImage}
+            title="Add reference image (or drop / paste on canvas)"
           >
             + Img
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={e => {
-                if (e.target.files?.[0]) loadRefImage(e.target.files[0]);
-                e.target.value = '';
-              }}
-            />
-          </label>
+          </button>
         </div>
 
         {!refCollapsed && (

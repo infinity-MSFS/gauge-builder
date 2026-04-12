@@ -10,6 +10,12 @@ import {
   type LineCap,
   type LineJoin,
 } from "../store/sceneStore";
+import {
+  useRefImageStore,
+  refImageElements,
+  type RefImageMeta,
+} from "../store/refImageStore";
+import { pickRefImageViaDialog } from "../store/refImageLoader";
 import VarPanel from "./VarPanel";
 import { Dropdown } from "./Dropdown";
 
@@ -371,6 +377,202 @@ function BindingFields({ kind, onChange, vars }: { kind: ElementKind; onChange: 
   );
 }
 
+// ── Reference image panel ──────────────────────────────────────────
+
+function RefImagePanel({ img }: { img: RefImageMeta }) {
+  const updateImage = useRefImageStore((s) => s.updateImage);
+  const deleteImage = useRefImageStore((s) => s.deleteImage);
+  const setSelectedId = useSceneStore((s) => s.setSelectedId);
+  const scene = useSceneStore((s) => s.scene);
+
+  const htmlImg = refImageElements.get(img.id);
+
+  const numberInput = (
+    label: string,
+    value: number,
+    onCommit: (v: number) => void,
+    step = 1,
+  ) => (
+    <FieldRow label={label}>
+      <input
+        type="number"
+        step={step}
+        className={inputCls}
+        value={Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (!Number.isNaN(v)) onCommit(v);
+        }}
+      />
+    </FieldRow>
+  );
+
+  const resetSize = () => {
+    if (!htmlImg) return;
+    const nw = htmlImg.naturalWidth;
+    const nh = htmlImg.naturalHeight;
+    if (!nw || !nh) return;
+    const scale = Math.min(scene.width / nw, scene.height / nh, 1);
+    const w = nw * scale;
+    const h = nh * scale;
+    updateImage(img.id, {
+      w,
+      h,
+      x: (scene.width - w) / 2,
+      y: (scene.height - h) / 2,
+    });
+  };
+
+  const replaceImage = async () => {
+    try {
+      const newId = await pickRefImageViaDialog();
+      if (!newId) return;
+      // Swap the new image's position with the current one, then remove the old
+      const newMeta = useRefImageStore.getState().images.find((i) => i.id === newId);
+      if (newMeta) {
+        useRefImageStore.getState().updateImage(newId, {
+          name: newMeta.name,
+          x: img.x,
+          y: img.y,
+          w: img.w,
+          h: img.h,
+          opacity: img.opacity,
+          locked: img.locked,
+          visible: img.visible,
+        });
+      }
+      deleteImage(img.id);
+      setSelectedId(newId);
+    } catch (err) {
+      console.error("Failed to replace reference image:", err);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#454545" }}>
+          Reference
+        </span>
+        <span className="text-xs truncate flex-1" style={{ color: "#737373" }}>
+          {img.name}
+        </span>
+      </div>
+
+      {/* Thumbnail */}
+      {htmlImg && (
+        <div
+          className="w-full rounded-md overflow-hidden flex items-center justify-center"
+          style={{
+            background: "#0a0a0a",
+            border: "1px solid #181818",
+            maxHeight: 160,
+          }}
+        >
+          <img
+            src={htmlImg.src}
+            alt={img.name}
+            style={{
+              maxWidth: "100%",
+              maxHeight: 160,
+              objectFit: "contain",
+              opacity: img.opacity,
+            }}
+          />
+        </div>
+      )}
+
+      {/* Opacity */}
+      <SectionLabel>Opacity</SectionLabel>
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={img.opacity}
+          className="flex-1"
+          onChange={(e) => updateImage(img.id, { opacity: parseFloat(e.target.value) })}
+        />
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          className="w-14 text-center text-[11px] font-mono"
+          style={{
+            background: "#0f0f0f",
+            border: "1px solid #181818",
+            borderRadius: 6,
+            color: "#e8e8e8",
+            padding: "4px 6px",
+            outline: "none",
+          }}
+          value={Math.round(img.opacity * 100)}
+          onChange={(e) =>
+            updateImage(img.id, {
+              opacity: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) / 100,
+            })
+          }
+        />
+      </div>
+
+      {/* Transform */}
+      <SectionLabel>Transform</SectionLabel>
+      <div className="space-y-2">
+        {numberInput("X", img.x, (v) => updateImage(img.id, { x: v }))}
+        {numberInput("Y", img.y, (v) => updateImage(img.id, { y: v }))}
+        {numberInput("W", img.w, (v) => updateImage(img.id, { w: Math.max(1, v) }))}
+        {numberInput("H", img.h, (v) => updateImage(img.id, { h: Math.max(1, v) }))}
+      </div>
+
+      {/* Toggles */}
+      <SectionLabel>State</SectionLabel>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: "#a0a0a0" }}>
+          <input
+            type="checkbox"
+            checked={img.visible}
+            onChange={(e) => updateImage(img.id, { visible: e.target.checked })}
+          />
+          Visible
+        </label>
+        <label className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: "#a0a0a0" }}>
+          <input
+            type="checkbox"
+            checked={img.locked}
+            onChange={(e) => updateImage(img.id, { locked: e.target.checked })}
+          />
+          Locked
+        </label>
+      </div>
+
+      {/* Actions */}
+      <div className="pt-2 space-y-1.5">
+        <button
+          className="w-full text-[11px] font-medium py-1.5 rounded-md transition-colors"
+          style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.2)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.1)"; }}
+          onClick={resetSize}
+          disabled={!htmlImg}
+        >
+          Reset Size
+        </button>
+        <button
+          className="w-full text-[11px] font-medium py-1.5 rounded-md transition-colors"
+          style={{ background: "rgba(99,102,241,0.1)", color: "#6366f1" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(99,102,241,0.2)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(99,102,241,0.1)"; }}
+          onClick={replaceImage}
+        >
+          Replace Image…
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Inspector ──────────────────────────────────────────────────────
 
 export default function Inspector() {
@@ -379,8 +581,12 @@ export default function Inspector() {
   const scene = useSceneStore((s) => s.scene);
   const vars = useSceneStore((s) => s.vars);
   const updateElement = useSceneStore((s) => s.updateElement);
+  const refImages = useRefImageStore((s) => s.images);
 
-  const selected: SceneElement | undefined = scene.elements.find((e) => e.id === selectedId);
+  const refImg = refImages.find((i) => i.id === selectedId);
+  const selected: SceneElement | undefined = refImg
+    ? undefined
+    : scene.elements.find((e) => e.id === selectedId);
 
   const getStyle = (kind: ElementKind): NvgStyle | null => {
     if ("style" in kind) return (kind as any).style;
@@ -406,24 +612,34 @@ export default function Inspector() {
     <div className="flex flex-col shrink-0" style={{ width: 288, background: "#080808", borderLeft: "1px solid #111111" }}>
       {/* Tab bar */}
       <div className="flex shrink-0" style={{ height: 42, borderBottom: "1px solid #111111" }}>
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            className="flex-1 text-[10px] font-semibold uppercase tracking-wider transition-colors relative"
-            style={{ color: tab === t.key ? "#6366f1" : "#454545", background: "transparent" }}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-            {tab === t.key && (
-              <span className="absolute bottom-0 left-0 right-0" style={{ height: 2, background: "#6366f1", borderRadius: "2px 2px 0 0" }} />
-            )}
-          </button>
-        ))}
+        {tabs.map((t) => {
+          const disabled = !!refImg && t.key !== "vars";
+          return (
+            <button
+              key={t.key}
+              className="flex-1 text-[10px] font-semibold uppercase tracking-wider transition-colors relative"
+              style={{
+                color: disabled ? "#242424" : tab === t.key ? "#6366f1" : "#454545",
+                background: "transparent",
+                cursor: disabled ? "not-allowed" : "pointer",
+              }}
+              disabled={disabled}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+              {tab === t.key && !disabled && (
+                <span className="absolute bottom-0 left-0 right-0" style={{ height: 2, background: "#6366f1", borderRadius: "2px 2px 0 0" }} />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {tab === "vars" ? (
+        {refImg && tab !== "vars" ? (
+          <RefImagePanel img={refImg} />
+        ) : tab === "vars" ? (
           <VarPanel />
         ) : !selected ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2">

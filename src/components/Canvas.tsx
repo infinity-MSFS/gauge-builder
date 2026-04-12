@@ -12,6 +12,11 @@ import {
   refImageElements,
   type RefImageMeta,
 } from "../store/refImageStore";
+import {
+  loadRefImageFromFile,
+  loadRefImageFromClipboard,
+  pickRefImageViaDialog,
+} from "../store/refImageLoader";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -298,7 +303,6 @@ function drawSelectionOverlay(
 export default function Canvas() {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const zoomLabelRef = useRef<HTMLSpanElement>(null);
 
   // Mirror store state into refs
@@ -775,48 +779,43 @@ export default function Canvas() {
     };
   }, []);
 
-  // ── Image loader (exported for use by LayerList) ──────────────────────
-
-  const loadImageFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const src = ev.target!.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const scene  = sceneRef.current;
-        const scale  = Math.min(scene.width / img.width, scene.height / img.height, 1);
-        const w = img.width * scale, h = img.height * scale;
-        const id = `ref_${Date.now()}`;
-        const name = file.name.length > 24 ? file.name.slice(0, 21) + '...' : file.name;
-
-        refImageElements.set(id, img);
-        useRefImageStore.getState().addImage({
-          id,
-          name,
-          x: (scene.width  - w) / 2,
-          y: (scene.height - h) / 2,
-          w, h,
-          opacity: 0.5,
-          locked: false,
-          visible: true,
-        });
-        useSceneStore.getState().setSelectedId(id);
-        forceUpdate();
-      };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
-  };
+  // ── Image loading ─────────────────────────────────────────────────────
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     for (let i = 0; i < e.dataTransfer.files.length; i++) {
       if (e.dataTransfer.files[i].type.startsWith('image/')) {
-        loadImageFile(e.dataTransfer.files[i]);
+        loadRefImageFromFile(e.dataTransfer.files[i]).then(() => forceUpdate());
         break;
       }
     }
   };
+
+  const handlePickImage = async () => {
+    try {
+      const id = await pickRefImageViaDialog();
+      if (id) forceUpdate();
+    } catch (err) {
+      console.error('Failed to load reference image:', err);
+    }
+  };
+
+  // ── Paste from clipboard ─────────────────────────────────────────────
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.matches?.('input,textarea,[contenteditable]')) return;
+      const items = e.clipboardData?.items ?? null;
+      loadRefImageFromClipboard(items).then((id) => {
+        if (id) forceUpdate();
+      }).catch((err) => {
+        console.error('Failed to paste reference image:', err);
+      });
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────────────
 
@@ -848,25 +847,16 @@ export default function Canvas() {
         >
           Fit
         </button>
-        <label
-          className="text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors cursor-pointer"
+        <button
+          className="text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors"
           style={{ background: 'rgba(8,8,8,0.9)', border: '1px solid #1c1c1c', color: '#606060', backdropFilter: 'blur(8px)' }}
           onMouseEnter={e => (e.currentTarget.style.color = '#e8e8e8')}
           onMouseLeave={e => (e.currentTarget.style.color = '#606060')}
-          title="Add reference image (or drag & drop)"
+          onClick={handlePickImage}
+          title="Add reference image (or drop / paste)"
         >
           + Ref
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={e => {
-              if (e.target.files?.[0]) loadImageFile(e.target.files[0]);
-              e.target.value = '';
-            }}
-          />
-        </label>
+        </button>
       </div>
 
       {/* Zoom level */}
@@ -883,7 +873,7 @@ export default function Canvas() {
         className="absolute bottom-2 left-3 text-[11px] select-none pointer-events-none"
         style={{ color: '#1e1e1e' }}
       >
-        Scroll to zoom · Space+drag to pan · Drop image for reference
+        Scroll to zoom · Space+drag to pan · Drop / paste image for reference
       </span>
     </div>
   );
