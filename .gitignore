@@ -1,0 +1,6 @@
+/dist/
+/target/
+/Cargo.lock
+/node_modules/
+/tailwind.css
+/bun.lock
