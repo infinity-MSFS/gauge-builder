@@ -107,6 +107,106 @@ pub fn rename_element(
     }
 }
 
+// ─── Group management commands ─────────────────────────────────────
+
+/// Wrap the given top-level element IDs into a new Group (preserving order).
+#[tauri::command]
+pub fn group_elements(ids: Vec<String>, store: State<'_, SceneStore>) -> Result<SceneElement, String> {
+    if ids.is_empty() {
+        return Err("No ids provided".into());
+    }
+    let mut s = store.lock().unwrap();
+    s.push_undo();
+
+    // Collect elements in the requested order, removing from top-level.
+    let mut children: Vec<SceneElement> = Vec::with_capacity(ids.len());
+    for id in &ids {
+        if let Some(pos) = s.scene.elements.iter().position(|e| &e.id == id) {
+            children.push(s.scene.elements.remove(pos));
+        }
+    }
+    if children.is_empty() {
+        return Err("None of the specified elements found at top level".into());
+    }
+
+    let group = make_group(children);
+    s.scene.elements.push(group.clone());
+    Ok(group)
+}
+
+/// Move a Group's children back to top-level (at the group's position).
+#[tauri::command]
+pub fn ungroup(id: String, store: State<'_, SceneStore>) -> Result<(), String> {
+    let mut s = store.lock().unwrap();
+    if let Some(pos) = s.scene.elements.iter().position(|e| e.id == id) {
+        if let ElementKind::Group { children, .. } = s.scene.elements[pos].kind.clone() {
+            s.push_undo();
+            s.scene.elements.remove(pos);
+            for (i, child) in children.into_iter().enumerate() {
+                s.scene.elements.insert(pos + i, child);
+            }
+            Ok(())
+        } else {
+            Err(format!("Element {id} is not a Group"))
+        }
+    } else {
+        Err(format!("Group {id} not found at top level"))
+    }
+}
+
+/// Move a top-level element into a Group's children list.
+#[tauri::command]
+pub fn move_into_group(
+    element_id: String,
+    group_id: String,
+    store: State<'_, SceneStore>,
+) -> Result<(), String> {
+    let mut s = store.lock().unwrap();
+
+    // Extract the element from top-level first.
+    let pos = s.scene.elements.iter().position(|e| e.id == element_id)
+        .ok_or_else(|| format!("Element {element_id} not found at top level"))?;
+    s.push_undo();
+    let el = s.scene.elements.remove(pos);
+
+    // Find the group and push the element into it.
+    if let Some(group) = s.scene.elements.iter_mut().find(|e| e.id.as_str() == group_id) {
+        if let ElementKind::Group { children, .. } = &mut group.kind {
+            children.push(el);
+            Ok(())
+        } else {
+            // Rollback: reinsert element
+            s.scene.elements.insert(pos, el);
+            Err(format!("Element {group_id} is not a Group"))
+        }
+    } else {
+        s.scene.elements.insert(pos, el);
+        Err(format!("Group {group_id} not found"))
+    }
+}
+
+/// Add a new element directly into a group's children list.
+#[tauri::command]
+pub fn add_element_to_group(
+    kind: ElementKindTag,
+    group_id: String,
+    store: State<'_, SceneStore>,
+) -> Result<SceneElement, String> {
+    let el = kind.default_element();
+    let mut s = store.lock().unwrap();
+    s.push_undo();
+    if let Some(group) = s.find_element_mut(&group_id) {
+        if let ElementKind::Group { children, .. } = &mut group.kind {
+            children.push(el.clone());
+            Ok(el)
+        } else {
+            Err(format!("Element {group_id} is not a Group"))
+        }
+    } else {
+        Err(format!("Group {group_id} not found"))
+    }
+}
+
 #[tauri::command]
 pub fn undo(store: State<'_, SceneStore>) -> Result<Scene, String> {
     store.lock().unwrap().undo().ok_or("Nothing to undo".into())

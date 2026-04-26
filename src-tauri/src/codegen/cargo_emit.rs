@@ -1,10 +1,7 @@
 use crate::scene::Scene;
 
 pub fn emit_cargo_toml(scene: &Scene) -> String {
-    let snake_name = scene
-        .gauge_name
-        .replace('-', "_")
-        .to_lowercase();
+    let snake_name = scene.gauge_name.replace('-', "_").to_lowercase();
 
     format!(
         r#"[package]
@@ -16,7 +13,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-msfs = {{ git = "https://github.com/infinity-MSFS/infinity-rs" }}
+infinity_rs = {{ git = "https://github.com/infinity-MSFS/infinity-rs" }}
 msfs_derive = {{ git = "https://github.com/infinity-MSFS/infinity-rs" }}
 
 [profile.release]

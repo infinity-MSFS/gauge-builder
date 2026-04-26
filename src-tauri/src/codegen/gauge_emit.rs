@@ -11,8 +11,8 @@ pub fn emit_gauge(scene: &Scene) -> String {
 mod vars;
 mod draw;
 
-use msfs::prelude::*;
-use msfs::nvg::NvgContext;
+use infinity_rs::prelude::*;
+use infinity_rs::nvg::NvgContext;
 
 pub struct {struct_name} {{
     nvg: Option<NvgContext>,
@@ -49,7 +49,7 @@ impl Gauge for {struct_name} {{
     }}
 }}
 
-msfs::export_gauge!({snake_name}, {struct_name});
+infinity_rs::export_gauge!({snake_name}, {struct_name});
 "#
     )
 }

@@ -78,7 +78,67 @@ pub enum ElementKind {
     Group {
         name: String,
         children: Vec<SceneElement>,
+        #[serde(default = "default_zero_bv")] translate_x: BoundValue,
+        #[serde(default = "default_zero_bv")] translate_y: BoundValue,
+        #[serde(default = "default_zero_bv")] rotate: BoundValue,
+        #[serde(default = "default_one_bv")]  scale_x: BoundValue,
+        #[serde(default = "default_one_bv")]  scale_y: BoundValue,
+        #[serde(default = "default_one_bv")]  opacity: BoundValue,
+        #[serde(default)] clip_modifier: Option<ClipModifier>,
+        #[serde(default)] array_modifier: Option<ArrayModifier>,
     },
+}
+
+fn default_zero_bv() -> BoundValue { BoundValue::lit(0.0) }
+fn default_one_bv()  -> BoundValue { BoundValue::lit(1.0) }
+
+// ─── Group modifiers ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClipModifier {
+    pub x: BoundValue,
+    pub y: BoundValue,
+    pub w: BoundValue,
+    pub h: BoundValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ArrayModifier {
+    Linear {
+        count: u32,
+        offset_x: BoundValue,
+        offset_y: BoundValue,
+    },
+    Radial {
+        count: u32,
+        cx: BoundValue,
+        cy: BoundValue,
+        start_angle: BoundValue,
+        arc_angle: BoundValue,
+    },
+}
+
+// ─── Helper: build an empty Group SceneElement ─────────────────────
+
+pub fn make_group(children: Vec<SceneElement>) -> SceneElement {
+    SceneElement {
+        id: Uuid::new_v4().to_string(),
+        name: "Group".into(),
+        visible: true,
+        kind: ElementKind::Group {
+            name: "Group".into(),
+            children,
+            translate_x: BoundValue::lit(0.0),
+            translate_y: BoundValue::lit(0.0),
+            rotate:      BoundValue::lit(0.0),
+            scale_x:     BoundValue::lit(1.0),
+            scale_y:     BoundValue::lit(1.0),
+            opacity:     BoundValue::lit(1.0),
+            clip_modifier:  None,
+            array_modifier: None,
+        },
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,6 +314,14 @@ impl ElementKindTag {
                 ElementKind::Group {
                     name: "Group".into(),
                     children: Vec::new(),
+                    translate_x: BoundValue::lit(0.0),
+                    translate_y: BoundValue::lit(0.0),
+                    rotate:      BoundValue::lit(0.0),
+                    scale_x:     BoundValue::lit(1.0),
+                    scale_y:     BoundValue::lit(1.0),
+                    opacity:     BoundValue::lit(1.0),
+                    clip_modifier:  None,
+                    array_modifier: None,
                 },
             ),
         };

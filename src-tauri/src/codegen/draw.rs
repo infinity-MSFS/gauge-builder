@@ -8,7 +8,7 @@ pub fn emit_draw(scene: &Scene, vars: &[VarEntry]) -> String {
 use crate::vars;
 
 #[cfg(target_arch = "wasm32")]
-use msfs::nvg::{self, NvgContext, Color, LineCap, LineJoin, Winding};
+use infinity_rs::nvg::{self, NvgContext, Color, LineCap, LineJoin, Winding};
 
 pub fn render(
     #[cfg(target_arch = "wasm32")] ctx: &NvgContext,
@@ -57,7 +57,10 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             out.push_str(&format!("{pad}ctx.begin_path();\n"));
             out.push_str(&format!(
                 "{pad}ctx.rect({}, {}, {}, {});\n",
-                bv(x), bv(y), bv(w), bv(h),
+                bv(x),
+                bv(y),
+                bv(w),
+                bv(h),
             ));
             emit_fill_stroke(out, style, &pad);
         }
@@ -66,12 +69,20 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             out.push_str(&format!("{pad}ctx.begin_path();\n"));
             out.push_str(&format!(
                 "{pad}ctx.circle({}, {}, {});\n",
-                bv(cx), bv(cy), bv(r),
+                bv(cx),
+                bv(cy),
+                bv(r),
             ));
             emit_fill_stroke(out, style, &pad);
         }
         ElementKind::Arc {
-            cx, cy, r, a0, a1, dir, style,
+            cx,
+            cy,
+            r,
+            a0,
+            a1,
+            dir,
+            style,
         } => {
             let winding = match dir {
                 ArcDir::Cw => "Winding::Cw",
@@ -81,40 +92,47 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             out.push_str(&format!("{pad}ctx.begin_path();\n"));
             out.push_str(&format!(
                 "{pad}ctx.arc({}, {}, {}, {}, {}, {});\n",
-                bv(cx), bv(cy), bv(r), bv(a0), bv(a1), winding,
+                bv(cx),
+                bv(cy),
+                bv(r),
+                bv(a0),
+                bv(a1),
+                winding,
             ));
             emit_fill_stroke(out, style, &pad);
         }
         ElementKind::Line {
-            x1, y1, x2, y2, style,
+            x1,
+            y1,
+            x2,
+            y2,
+            style,
         } => {
             emit_style_calls(out, style, &pad);
             out.push_str(&format!("{pad}ctx.begin_path();\n"));
-            out.push_str(&format!(
-                "{pad}ctx.move_to({}, {});\n",
-                bv(x1), bv(y1),
-            ));
-            out.push_str(&format!(
-                "{pad}ctx.line_to({}, {});\n",
-                bv(x2), bv(y2),
-            ));
+            out.push_str(&format!("{pad}ctx.move_to({}, {});\n", bv(x1), bv(y1),));
+            out.push_str(&format!("{pad}ctx.line_to({}, {});\n", bv(x2), bv(y2),));
             emit_fill_stroke(out, style, &pad);
         }
         ElementKind::Text {
-            x, y, content, font_size, font, style,
+            x,
+            y,
+            content,
+            font_size,
+            font,
+            style,
         } => {
             emit_style_calls(out, style, &pad);
             out.push_str(&format!(
                 "{pad}// TODO: ensure font \"{}\" is loaded via ctx.create_font() in Gauge::init\n",
                 font,
             ));
-            out.push_str(&format!(
-                "{pad}ctx.font_size({} as f32);\n",
-                bv(font_size),
-            ));
+            out.push_str(&format!("{pad}ctx.font_size({} as f32);\n", bv(font_size),));
             out.push_str(&format!(
                 "{pad}ctx.text({} as f32, {} as f32, &format!(\"{{}}\", {}));\n",
-                bv(x), bv(y), bv(content),
+                bv(x),
+                bv(y),
+                bv(content),
             ));
         }
         ElementKind::Path { commands, style } => {
@@ -123,23 +141,27 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             for cmd in commands {
                 match cmd {
                     PathCmd::MoveTo { x, y } => {
-                        out.push_str(&format!(
-                            "{pad}ctx.move_to({}, {});\n",
-                            bv(x), bv(y),
-                        ));
+                        out.push_str(&format!("{pad}ctx.move_to({}, {});\n", bv(x), bv(y),));
                     }
                     PathCmd::LineTo { x, y } => {
-                        out.push_str(&format!(
-                            "{pad}ctx.line_to({}, {});\n",
-                            bv(x), bv(y),
-                        ));
+                        out.push_str(&format!("{pad}ctx.line_to({}, {});\n", bv(x), bv(y),));
                     }
                     PathCmd::BezierTo {
-                        c1x, c1y, c2x, c2y, x, y,
+                        c1x,
+                        c1y,
+                        c2x,
+                        c2y,
+                        x,
+                        y,
                     } => {
                         out.push_str(&format!(
                             "{pad}ctx.bezier_to({}, {}, {}, {}, {}, {});\n",
-                            bv(c1x), bv(c1y), bv(c2x), bv(c2y), bv(x), bv(y),
+                            bv(c1x),
+                            bv(c1y),
+                            bv(c2x),
+                            bv(c2y),
+                            bv(x),
+                            bv(y),
                         ));
                     }
                     PathCmd::ClosePath => {
@@ -149,10 +171,107 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             }
             emit_fill_stroke(out, style, &pad);
         }
-        ElementKind::Group { children, .. } => {
-            for child in children {
-                emit_element(out, child, indent);
+        ElementKind::Group {
+            children,
+            translate_x,
+            translate_y,
+            rotate,
+            scale_x,
+            scale_y,
+            opacity,
+            clip_modifier,
+            array_modifier,
+            ..
+        } => {
+            // Helper: emit clip + children into the already-transformed scope
+            let emit_content = |out: &mut String, inner_pad: &str| {
+                if let Some(c) = clip_modifier {
+                    out.push_str(&format!(
+                        "{inner_pad}ctx.scissor({}, {}, {}, {});\n",
+                        bv(&c.x),
+                        bv(&c.y),
+                        bv(&c.w),
+                        bv(&c.h),
+                    ));
+                }
+                for child in children {
+                    emit_element(out, child, indent + 2);
+                }
+            };
+
+            // Outer scope: group transform applied once so moving the parent slides the whole array
+            out.push_str(&format!("{pad}ctx.scoped(|ctx| {{\n"));
+            let gp = format!("{pad}    ");
+            out.push_str(&format!(
+                "{gp}ctx.translate({}, {});\n",
+                bv(translate_x),
+                bv(translate_y)
+            ));
+            out.push_str(&format!(
+                "{gp}ctx.rotate(({}) * std::f32::consts::PI / 180.0_f32);\n",
+                bv(rotate)
+            ));
+            out.push_str(&format!(
+                "{gp}ctx.scale({}, {});\n",
+                bv(scale_x),
+                bv(scale_y)
+            ));
+            out.push_str(&format!("{gp}ctx.global_alpha({});\n", bv(opacity)));
+
+            match array_modifier {
+                None => {
+                    emit_content(out, &gp);
+                }
+                Some(ArrayModifier::Linear {
+                    count,
+                    offset_x,
+                    offset_y,
+                }) => {
+                    let ivar = format!("_arri{indent}");
+                    let ox = bv(offset_x);
+                    let oy = bv(offset_y);
+                    out.push_str(&format!("{gp}for {ivar} in 0_u32..{count}_u32 {{\n"));
+                    let ip2 = format!("{gp}    ");
+                    out.push_str(&format!("{ip2}ctx.scoped(|ctx| {{\n"));
+                    let ip3 = format!("{ip2}    ");
+                    out.push_str(&format!(
+                        "{ip3}ctx.translate({ivar} as f32 * ({ox}), {ivar} as f32 * ({oy}));\n"
+                    ));
+                    emit_content(out, &ip3);
+                    out.push_str(&format!("{ip2}}});\n"));
+                    out.push_str(&format!("{gp}}}\n"));
+                }
+                Some(ArrayModifier::Radial {
+                    count,
+                    cx,
+                    cy,
+                    start_angle,
+                    arc_angle,
+                }) => {
+                    let ivar = format!("_arri{indent}");
+                    let avar = format!("_anga{indent}");
+                    let cx_v = bv(cx);
+                    let cy_v = bv(cy);
+                    let sa_v = bv(start_angle);
+                    let arc_v = bv(arc_angle);
+                    out.push_str(&format!("{gp}for {ivar} in 0_u32..{count}_u32 {{\n"));
+                    let ip2 = format!("{gp}    ");
+                    out.push_str(&format!(
+                        "{ip2}let {avar} = (({sa_v}) + {ivar} as f32 * (({arc_v}) / {count}_f32)) * std::f32::consts::PI / 180.0_f32;\n",
+                    ));
+                    out.push_str(&format!("{ip2}ctx.scoped(|ctx| {{\n"));
+                    let ip3 = format!("{ip2}    ");
+                    // cx/cy are in the group's local space; rotation pivot moves with the group
+                    out.push_str(&format!("{ip3}ctx.translate({cx_v}, {cy_v});\n"));
+                    out.push_str(&format!("{ip3}ctx.rotate({avar});\n"));
+                    out.push_str(&format!("{ip3}ctx.translate(-({cx_v}), -({cy_v}));\n"));
+                    emit_content(out, &ip3);
+                    out.push_str(&format!("{ip2}}});\n"));
+                    out.push_str(&format!("{gp}}}\n"));
+                }
             }
+
+            out.push_str(&format!("{pad}}});\n"));
         }
     }
     out.push('\n');
