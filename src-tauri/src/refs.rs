@@ -32,32 +32,55 @@ pub struct RefImageInput {
     pub data: String,
 }
 
+/// The `refs/` file-name prefix for a gauge, taken from its scene file rather
+/// than its display name: two gauges in a project may share a name, but never a
+/// file, so this is what keeps one gauge's save from pruning another's images.
+pub fn prefix_for(scene_file: &str) -> String {
+    let stem = scene_file
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(scene_file)
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(scene_file);
+    slug(stem)
+}
+
 /// Write every reference image into `<project_dir>/refs/`, returning the scene
-/// metadata (with repo-relative paths) to record in the RON.
+/// metadata (with repo-relative paths) to record in the RON. `prefix` scopes
+/// the file names to one gauge — see [`prefix_for`] — and `in_use` names the
+/// files other gauges in the project still point at, which this gauge must
+/// never prune however well they match its own prefix.
 pub fn extract_ref_images(
     project_dir: &Path,
-    gauge_name: &str,
+    prefix: &str,
     inputs: &[RefImageInput],
+    in_use: &HashSet<String>,
 ) -> Result<Vec<RefImage>, String> {
     let refs_dir = project_dir.join(REFS_DIR);
-    let prefix = slug(gauge_name);
+    let prefix = slug(prefix);
 
     if inputs.is_empty() {
         // Nothing to write, but a previously exported reference may be stale.
         if refs_dir.is_dir() {
-            prune(&refs_dir, &prefix, &HashSet::new());
+            prune(&refs_dir, &prefix, in_use);
         }
         return Ok(Vec::new());
     }
 
     fs::create_dir_all(&refs_dir).map_err(|e| format!("Creating {refs_dir:?}: {e}"))?;
 
-    let mut written = HashSet::new();
+    let mut written = in_use.clone();
     let mut metas = Vec::with_capacity(inputs.len());
     for input in inputs {
         let bytes = decode_base64(&input.data)
             .map_err(|e| format!("Reference image '{}': {e}", input.name))?;
-        let file_name = seeded_file_name(&prefix, &input.source_name, &bytes);
+        // An image already sitting in `refs/` is the file to keep pointing at,
+        // whatever earlier naming scheme minted it — otherwise opening an old
+        // project and saving it renames every reference and strands the
+        // originals beside them.
+        let file_name = existing_match(&refs_dir, &bytes)
+            .unwrap_or_else(|| seeded_file_name(&prefix, &input.source_name, &bytes));
         let path = refs_dir.join(&file_name);
         // Seeded names are content-addressed, so an unchanged image is already
         // byte-identical on disk — skip the write to keep git diffs quiet.
@@ -69,6 +92,7 @@ pub fn extract_ref_images(
             id: input.id.clone(),
             name: input.name.clone(),
             file: format!("{REFS_DIR}/{file_name}"),
+            source: input.source_name.clone(),
             x: input.x,
             y: input.y,
             w: input.w,
@@ -84,8 +108,9 @@ pub fn extract_ref_images(
 }
 
 /// Drop references this gauge wrote on an earlier export but no longer uses.
-/// Only files carrying this gauge's prefix are considered, so a shared `refs/`
-/// folder never loses another project's images.
+/// Only files carrying this gauge's prefix are considered, and `keep` shields
+/// the ones other gauges still reference, so a shared `refs/` folder never
+/// loses an image something else is using.
 fn prune(refs_dir: &Path, prefix: &str, keep: &HashSet<String>) {
     let entries = match fs::read_dir(refs_dir) {
         Ok(e) => e,
@@ -100,6 +125,22 @@ fn prune(refs_dir: &Path, prefix: &str, keep: &HashSet<String>) {
             let _ = fs::remove_file(entry.path());
         }
     }
+}
+
+/// The name of a `refs/` file already holding exactly these bytes.
+fn existing_match(refs_dir: &Path, bytes: &[u8]) -> Option<String> {
+    for entry in fs::read_dir(refs_dir).ok()?.flatten() {
+        let path = entry.path();
+        // Compare the cheap thing first; most candidates differ in length.
+        let same_size = fs::metadata(&path).is_ok_and(|m| m.len() == bytes.len() as u64);
+        if !same_size || !path.is_file() {
+            continue;
+        }
+        if fs::read(&path).is_ok_and(|found| found == bytes) {
+            return Some(entry.file_name().to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 /// `<gauge>_<source>_<content hash>.<ext>` — stable across exports for the same
@@ -231,7 +272,13 @@ mod tests {
     fn extracts_into_refs_and_prunes_its_own_leftovers() {
         let dir = temp_dir("extract");
         // "aGVsbG8=" is "hello".
-        let metas = extract_ref_images(&dir, "Altimeter", &[input("r1", "panel.png", "aGVsbG8=")]).unwrap();
+        let metas = extract_ref_images(
+            &dir,
+            "Altimeter",
+            &[input("r1", "panel.png", "aGVsbG8=")],
+            &HashSet::new(),
+        )
+        .unwrap();
         assert_eq!(metas.len(), 1);
         assert!(metas[0].file.starts_with("refs/altimeter_panel_"));
         assert_eq!(metas[0].x, 1.0);
@@ -242,10 +289,91 @@ mod tests {
         // while this gauge's now-unused file goes away.
         let other = dir.join(REFS_DIR).join("asi_panel_0000.png");
         fs::write(&other, b"other").unwrap();
-        let metas = extract_ref_images(&dir, "Altimeter", &[]).unwrap();
+        let metas = extract_ref_images(&dir, "Altimeter", &[], &HashSet::new()).unwrap();
         assert!(metas.is_empty());
         assert!(!written.exists());
         assert!(other.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prefixes_come_from_the_scene_file_name() {
+        assert_eq!(prefix_for("altimeter.ron"), "altimeter");
+        assert_eq!(prefix_for("alpha_2.ron"), "alpha_2");
+        assert_eq!(prefix_for(r"C:\projects\dc\My Gauge.ron"), "my_gauge");
+        // Two gauges sharing a display name still get separate prefixes.
+        assert_ne!(prefix_for("altimeter.ron"), prefix_for("altimeter_2.ron"));
+    }
+
+    #[test]
+    fn a_file_another_gauge_uses_survives_this_gauges_prune() {
+        let dir = temp_dir("in_use");
+        // Written under this gauge's prefix, but another tab points at it —
+        // the case that used to delete a sibling's tracing image outright.
+        let shared = dir.join(REFS_DIR).join("altimeter_shared_0000.png");
+        fs::create_dir_all(dir.join(REFS_DIR)).unwrap();
+        fs::write(&shared, b"shared").unwrap();
+        let stale = dir.join(REFS_DIR).join("altimeter_stale_0000.png");
+        fs::write(&stale, b"stale").unwrap();
+
+        let in_use = HashSet::from(["altimeter_shared_0000.png".to_string()]);
+        extract_ref_images(&dir, "Altimeter", &[], &in_use).unwrap();
+        assert!(shared.exists(), "a referenced file must not be pruned");
+        assert!(!stale.exists(), "an unreferenced leftover should still go");
+
+        // Same when the gauge does have images of its own to write.
+        extract_ref_images(
+            &dir,
+            "Altimeter",
+            &[input("r1", "panel.png", "aGVsbG8=")],
+            &in_use,
+        )
+        .unwrap();
+        assert!(shared.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_recorded_source_name_keeps_names_stable_across_saves() {
+        let dir = temp_dir("stable");
+        let first =
+            extract_ref_images(&dir, "pfd", &[input("r1", "Pasted.png", "aGVsbG8=")], &HashSet::new())
+                .unwrap();
+        assert_eq!(first[0].source, "Pasted.png");
+
+        // Reopening feeds the recorded source back in, so the name is the same
+        // rather than gaining another `pfd_` on the front.
+        let again = extract_ref_images(
+            &dir,
+            "pfd",
+            &[input("r1", &first[0].source, "aGVsbG8=")],
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(first[0].file, again[0].file);
+        assert!(first[0].file.starts_with("refs/pfd_pasted_"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_image_already_in_refs_keeps_the_name_it_has() {
+        let dir = temp_dir("reuse");
+        // Named by an older scheme — a gauge-name prefix rather than this
+        // gauge's scene-file one.
+        fs::create_dir_all(dir.join(REFS_DIR)).unwrap();
+        let legacy = dir.join(REFS_DIR).join("md_pfd_pasted_454eb139.png");
+        fs::write(&legacy, b"hello").unwrap();
+
+        let metas =
+            extract_ref_images(&dir, "scene", &[input("r1", "Pasted.png", "aGVsbG8=")], &HashSet::new())
+                .unwrap();
+        assert_eq!(metas[0].file, "refs/md_pfd_pasted_454eb139.png");
+        assert!(legacy.exists());
+        // No second copy of the same pixels was minted alongside it.
+        assert_eq!(fs::read_dir(dir.join(REFS_DIR)).unwrap().count(), 1);
 
         let _ = fs::remove_dir_all(&dir);
     }

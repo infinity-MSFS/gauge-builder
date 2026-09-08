@@ -8,6 +8,33 @@ Visual editor for building MSFS 2024 WASM gauge instruments. Design NanoVG-based
 - **Backend:** Rust (Tauri v2)
 - **Output:** Rust crate (`wasm32-wasip1`) using `msfs` / `msfs_derive` from infinity-rs
 
+## Projects
+
+A project is a folder holding one scene per gauge plus a `project.ron` manifest
+that registers them. Open one from the toolbar's **Project** menu and its gauges
+appear as tabs; switching tabs writes the gauge you are leaving, so there is no
+unsaved state to lose.
+
+```text
+dc-gauge-builder-projects/
+  project.ron          the manifest — one entry per gauge, plus the tab order
+  altimeter.ron        a gauge: elements, variables and reference metadata
+  airspeed.ron
+  refs/                tracing images, namespaced per gauge
+  out/altimeter/       the crate codegen emits for that gauge
+```
+
+- **Tabs** — click to switch, double-click to rename, drag to reorder,
+  right-click for rename / duplicate / delete, `+` for a new gauge.
+- **Adoption** — any `*.ron` scene sitting in the folder is registered when the
+  project opens, so pointing this at a directory of existing scenes just works,
+  and a folder that has never been a project becomes one on first open.
+- **Per-gauge state** — elements, sim variables and reference images all belong
+  to the gauge, and travel in its scene file. Each gauge builds into its own
+  crate under `out/`, so a build never overwrites a sibling.
+- The last project reopens on the next launch. Without one, the editor still
+  works on a single loose scene file through the same menu.
+
 ## The editor
 
 ### Tools
@@ -45,6 +72,7 @@ Align and distribute (aligning to the artboard when only one element is selected
 
 | Shortcut | Action |
 |---|---|
+| `Ctrl+S` | Save the active gauge into the project |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Ctrl+D` | Duplicate |
 | `Ctrl+G` / `Ctrl+Shift+G` | Group / ungroup |
@@ -67,13 +95,13 @@ Align and distribute (aligning to the artboard when only one element is selected
 - **Groups** with translate, rotate, scale, opacity and a draggable **pivot** — put the pivot on a needle's hub and bind rotation to a sim variable
 - **Modifiers** — rectangular clip, plus linear and radial arrays for tick marks
 - **Reference images** — drop or paste images to trace over, with per-image opacity, lock and visibility
-- **Variables** — define LVars and AVars, bind element properties to sim data at runtime
+- **Variables** — define LVars and AVars, bind element properties to sim data at runtime; they are saved with the gauge
 - **BoundValue system** — any numeric property can be a literal, LVar, AVar, or RPN expression
 - **Text** with static labels or bound values, horizontal/vertical alignment and decimal precision, mapped to `ctx.text_align()`
 - **Codegen** — generates `gauge.rs`, `draw.rs`, `vars.rs`, and `Cargo.toml` matching the infinity-rs API
 - **Build** — codegen-only, `cargo check`, or full `wasm32-wasip1` release build
 - **Undo/redo** with coalescing, so scrubbing a field is one step rather than dozens
-- **Save/load** scenes as RON files
+- **Projects** — a folder of gauges with a manifest, switched through tabs; scenes save as RON either way
 
 ## Getting Started
 
@@ -91,7 +119,7 @@ Requires [Rust](https://rustup.rs/) and the Tauri v2 CLI prerequisites.
 
 ```bash
 bun test                      # canvas geometry, path editing and snapping
-cd src-tauri && cargo test    # codegen output
+cd src-tauri && cargo test    # scene round-trips, projects, refs and codegen
 ```
 
 ## License

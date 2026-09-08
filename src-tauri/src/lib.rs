@@ -1,10 +1,12 @@
 mod build_runner;
 mod codegen;
 mod commands;
+mod project;
 mod refs;
 mod scene;
 mod var_registry;
 
+use project::ProjectState;
 use scene::SceneState;
 use std::sync::Mutex;
 use var_registry::VarRegistry;
@@ -17,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(Mutex::new(SceneState::default()))
         .manage(Mutex::new(VarRegistry::default()))
+        .manage(Mutex::new(ProjectState::default()))
         .invoke_handler(tauri::generate_handler![
             commands::get_scene,
             commands::set_gauge_meta,
@@ -49,6 +52,18 @@ pub fn run() {
             commands::codegen_preview,
             commands::emit_project,
             commands::run_build,
+            commands::get_project,
+            commands::gauge_output_dir,
+            commands::open_project,
+            commands::reopen_last_project,
+            commands::close_project,
+            commands::save_gauge,
+            commands::select_gauge,
+            commands::add_gauge,
+            commands::duplicate_gauge,
+            commands::rename_gauge,
+            commands::reorder_gauges,
+            commands::delete_gauge,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

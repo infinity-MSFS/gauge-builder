@@ -33,6 +33,8 @@ export interface RefImageRecord {
   name: string;
   /** Path relative to the RON's own directory, e.g. `refs/alt_panel_1f2e.png`. */
   file: string;
+  /** The image's original file name, e.g. `Pasted.png`. Absent in older scenes. */
+  source?: string;
   x: number;
   y: number;
   w: number;
@@ -96,10 +98,14 @@ function decodeInto(rec: RefImageRecord, dataURL: string): Promise<void> {
     img.onload = () => {
       refImageElements.set(rec.id, img);
       refImageData.set(rec.id, dataURL);
-      const { file, ...meta } = rec;
+      const { file, source, ...meta } = rec;
       useRefImageStore.getState().addImage({
         ...meta,
-        sourceName: fileNameOf(file),
+        // The original name, so resaving re-derives the same refs/ file name.
+        // Falling back to `file` would feed the seeded name back in and stack
+        // another gauge prefix onto it with every save; the display name is
+        // the closer stand-in for scenes written before `source` existed.
+        sourceName: source || meta.name || fileNameOf(file),
       });
       resolve();
     };

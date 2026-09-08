@@ -7,7 +7,10 @@ import {
 import { useSceneStore, type SceneElement } from "./store/sceneStore";
 import { useEditorStore } from "./store/editorStore";
 import { useRefImageStore } from "./store/refImageStore";
+import { useProjectStore } from "./store/projectStore";
+import { FolderOpen } from "lucide-react";
 import Canvas from "./components/Canvas";
+import GaugeTabs from "./components/GaugeTabs";
 import LayerList from "./components/LayerList";
 import Inspector from "./components/Inspector";
 import BuildPanel from "./components/BuildPanel";
@@ -242,6 +245,140 @@ function GaugeSettingsPopover() {
   );
 }
 
+// ── Project menu ───────────────────────────────────────────────────
+
+/**
+ * Project folder actions. A project is a folder of gauge scenes plus a
+ * `project.ron` manifest; opening one puts its gauges in the tab bar. Without
+ * one the editor still works on a single loose scene file, which is what the
+ * file items at the bottom are for.
+ */
+function ProjectMenu() {
+  const project = useProjectStore((s) => s.project);
+  const openProject = useProjectStore((s) => s.openProject);
+  const closeProject = useProjectStore((s) => s.closeProject);
+  const saveGauge = useProjectStore((s) => s.saveGauge);
+  const saveScene = useSceneStore((s) => s.saveScene);
+  const loadScene = useSceneStore((s) => s.loadScene);
+
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const chooseFolder = async () => {
+    setOpen(false);
+    const result = await dialogOpen({
+      title: "Open project folder",
+      directory: true,
+      multiple: false,
+    });
+    const dir = Array.isArray(result) ? result[0] : result;
+    if (dir) await openProject(dir);
+  };
+
+  const handleSaveAs = async () => {
+    setOpen(false);
+    const path = await dialogSave({
+      title: "Save scene",
+      defaultPath: "scene.ron",
+      filters: [{ name: "RON Scene", extensions: ["ron"] }],
+    });
+    if (path) await saveScene(path);
+  };
+
+  const handleOpenFile = async () => {
+    setOpen(false);
+    const result = await dialogOpen({
+      title: "Open scene",
+      multiple: false,
+      filters: [{ name: "RON Scene", extensions: ["ron"] }],
+    });
+    const path = Array.isArray(result) ? result[0] : result;
+    if (path) {
+      await loadScene(path);
+      useEditorStore.getState().clearSelection();
+    }
+  };
+
+  const item =
+    "flex items-center justify-between w-full px-3 py-1.5 text-[11px] text-left transition-colors cursor-pointer text-[#a0a0a0] hover:bg-[rgba(255,255,255,0.06)] hover:text-[#e8e8e8]";
+  const shortcut = <span className="text-[10px] text-[#454545]">Ctrl+S</span>;
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-md text-xs font-medium px-2.5 py-1 transition-colors cursor-pointer select-none text-[#a0a0a0] hover:text-[#e8e8e8] hover:bg-[rgba(255,255,255,0.06)]"
+        title={project ? project.root : "Open or create a project folder"}
+      >
+        <FolderOpen size={12} />
+        <span>{project ? project.manifest.name : "Project"}</span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full mt-1 left-0 z-50 rounded-lg overflow-hidden py-1"
+          style={{
+            width: 236,
+            background: "#0d0d0d",
+            border: "1px solid #1e1e1e",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.8)",
+          }}
+        >
+          <button type="button" className={item} onClick={chooseFolder}>
+            Open Project Folder…
+          </button>
+
+          {project && (
+            <>
+              <button
+                type="button"
+                className={item}
+                onClick={() => {
+                  setOpen(false);
+                  saveGauge();
+                }}
+              >
+                Save Gauge {shortcut}
+              </button>
+              <button
+                type="button"
+                className={item}
+                onClick={() => {
+                  setOpen(false);
+                  closeProject();
+                }}
+              >
+                Close Project
+              </button>
+            </>
+          )}
+
+          <div style={{ height: 1, background: "#161616", margin: "4px 0" }} />
+
+          <button type="button" className={item} onClick={handleSaveAs}>
+            {project ? "Export Scene File…" : "Save Scene File…"}
+          </button>
+          {!project && (
+            <button type="button" className={item} onClick={handleOpenFile}>
+              Open Scene File…
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Keyboard shortcut reference ────────────────────────────────────
 
 const SHORTCUTS: [string, [string, string][]][] = [
@@ -363,30 +500,6 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 function Toolbar({ onShowHelp }: { onShowHelp: () => void }) {
   const undo = useSceneStore((s) => s.undo);
   const redo = useSceneStore((s) => s.redo);
-  const saveScene = useSceneStore((s) => s.saveScene);
-  const loadScene = useSceneStore((s) => s.loadScene);
-
-  const handleSave = async () => {
-    const path = await dialogSave({
-      title: "Save scene",
-      defaultPath: "scene.ron",
-      filters: [{ name: "RON Scene", extensions: ["ron"] }],
-    });
-    if (path) await saveScene(path);
-  };
-
-  const handleLoad = async () => {
-    const result = await dialogOpen({
-      title: "Open scene",
-      multiple: false,
-      filters: [{ name: "RON Scene", extensions: ["ron"] }],
-    });
-    const path = Array.isArray(result) ? result[0] : result;
-    if (path) {
-      await loadScene(path);
-      useEditorStore.getState().clearSelection();
-    }
-  };
   const fetchCodegenPreview = useSceneStore((s) => s.fetchCodegenPreview);
   const codegenPreview = useSceneStore((s) => s.codegenPreview);
   const [showCodePreview, setShowCodePreview] = useState(false);
@@ -431,12 +544,7 @@ function Toolbar({ onShowHelp }: { onShowHelp: () => void }) {
 
           <Sep />
 
-          <ToolBtn onClick={handleSave} title="Save scene">
-            ↓ Save
-          </ToolBtn>
-          <ToolBtn onClick={handleLoad} title="Load scene">
-            ↑ Load
-          </ToolBtn>
+          <ProjectMenu />
 
           <Sep />
 
@@ -626,11 +734,18 @@ function collectIds(elements: SceneElement[], out: Set<string>) {
 export default function App() {
   const fetchScene = useSceneStore((s) => s.fetchScene);
   const fetchVars = useSceneStore((s) => s.fetchVars);
+  const restoreProject = useProjectStore((s) => s.restore);
   const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
-    fetchScene();
-    fetchVars();
+    // Reopening the last project loads its active gauge, so only fall back to
+    // the backend's empty scene when there is no project to come back to.
+    restoreProject().then(() => {
+      if (!useProjectStore.getState().project) {
+        fetchScene();
+        fetchVars();
+      }
+    });
   }, []);
 
   // Undo, load and delete can remove elements out from under the selection —
@@ -665,6 +780,14 @@ export default function App() {
         e.preventDefault();
         useSceneStore.getState().redo();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        // Without a project there is no path to save to; the menu's
+        // "Save Scene File…" asks for one.
+        if (useProjectStore.getState().project) {
+          useProjectStore.getState().saveGauge();
+        }
+      }
       if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
         e.preventDefault();
         setShowHelp((v) => !v);
@@ -677,6 +800,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen" style={{ background: "#000000" }}>
       <Toolbar onShowHelp={() => setShowHelp(true)} />
+      <GaugeTabs />
       <div className="flex flex-1 min-h-0">
         <LayerList />
         <Canvas />

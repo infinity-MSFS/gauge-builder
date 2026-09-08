@@ -18,6 +18,7 @@ fn scene_with(kind: ElementKind) -> Scene {
             kind,
         }],
         ref_images: Vec::new(),
+        vars: Vec::new(),
     }
 }
 

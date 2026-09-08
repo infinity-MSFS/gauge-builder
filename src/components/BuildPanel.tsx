@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { useSceneStore, type BuildModeType } from "../store/sceneStore";
+import { useProjectStore } from "../store/projectStore";
 import { Dropdown } from "./Dropdown";
 
 const inputCls =
@@ -15,6 +17,8 @@ export default function BuildPanel() {
   const emitProject = useSceneStore((s) => s.emitProject);
 
   const [outputDir, setOutputDir] = useState("./output");
+  const projectRoot = useProjectStore((s) => s.project?.root ?? null);
+  const activeGaugeId = useProjectStore((s) => s.project?.manifest.active ?? null);
   const [mode, setMode] = useState<BuildModeType>("CodegenOnly");
   const [msfsSdkPath, setMsfsSdkPath] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -35,6 +39,15 @@ export default function BuildPanel() {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [buildLogs]);
+
+  // Each gauge in a project emits into its own crate under <project>/out, so
+  // switching tabs retargets the build rather than overwriting a sibling.
+  useEffect(() => {
+    if (!projectRoot || !activeGaugeId) return;
+    invoke<string | null>("gauge_output_dir", { id: activeGaugeId })
+      .then((dir) => dir && setOutputDir(dir))
+      .catch((err) => console.error("Output directory lookup failed:", err));
+  }, [projectRoot, activeGaugeId]);
 
   const handleBuild = async () => {
     await emitProject(outputDir);
@@ -73,7 +86,8 @@ export default function BuildPanel() {
         <label className="flex items-center gap-1.5 shrink-0">
           <span className="text-[11px]" style={{ color: "#737373" }}>Output</span>
           <input
-            className={`w-36 ${inputCls}`}
+            className={`w-64 ${inputCls}`}
+            title={outputDir}
             value={outputDir}
             onChange={(e) => setOutputDir(e.target.value)}
           />

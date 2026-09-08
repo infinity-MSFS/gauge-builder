@@ -69,6 +69,7 @@ mod tests {
             id: "r1".into(),
             name: "panel.png".into(),
             file: "refs/my_gauge_panel_deadbeef.png".into(),
+            source: "panel.png".into(),
             x: 10.0,
             y: 20.0,
             w: 100.0,

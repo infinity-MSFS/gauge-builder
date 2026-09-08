@@ -1,3 +1,4 @@
+use crate::var_registry::VarEntry;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -15,6 +16,11 @@ pub struct Scene {
     /// exported; the emitted gauge code never references them.
     #[serde(default)]
     pub ref_images: Vec<RefImage>,
+    /// The gauge's sim variables. Held live in the `VarRegistry`; copied in on
+    /// the way to disk and moved back out on load, so a scene file carries
+    /// everything a gauge needs and each tab keeps its own variables.
+    #[serde(default)]
+    pub vars: Vec<VarEntry>,
 }
 
 impl Default for Scene {
@@ -25,6 +31,7 @@ impl Default for Scene {
             gauge_name: "my_gauge".into(),
             elements: Vec::new(),
             ref_images: Vec::new(),
+            vars: Vec::new(),
         }
     }
 }
@@ -37,6 +44,11 @@ pub struct RefImage {
     pub name: String,
     /// Path relative to the directory holding the scene RON, e.g. `refs/x.png`.
     pub file: String,
+    /// The image's original file name, e.g. `Pasted.png`. Kept so reopening and
+    /// resaving re-derives the same `refs/` name; without it the editor falls
+    /// back to the seeded name and stacks a fresh prefix on with every save.
+    #[serde(default)]
+    pub source: String,
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -477,6 +489,16 @@ impl Default for SceneState {
 }
 
 impl SceneState {
+    /// Replace the document wholesale — opening a gauge or a scene file. The
+    /// history is dropped with it, since undoing back into a scene the editor
+    /// no longer has open is never what the user meant.
+    pub fn reset(&mut self, scene: Scene) {
+        self.scene = scene;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.last_tag = None;
+    }
+
     pub fn push_undo(&mut self) {
         self.push_undo_tagged(None);
     }
@@ -619,3 +641,74 @@ impl SceneState {
 }
 
 pub type SceneStore = Mutex<SceneState>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::var_registry::{RustVarType, VarKind};
+
+    fn round_trip(scene: &Scene) -> Scene {
+        ron::from_str(&scene_to_ron(scene).unwrap()).unwrap()
+    }
+
+    /// `ElementKind` and `BoundValue` carry an internal `type` tag for the
+    /// frontend's benefit, and a style holds `Rgba(..)` tuples. Reading that
+    /// combination back needs a RON new enough to hand serde a map rather than
+    /// a sequence for a named tuple — older ones fail on every saved scene
+    /// that actually has artwork in it.
+    #[test]
+    fn a_scene_with_artwork_reloads() {
+        let mut scene = Scene::default();
+        for tag in [
+            ElementKindTag::Rect,
+            ElementKindTag::Circle,
+            ElementKindTag::Arc,
+            ElementKindTag::Line,
+            ElementKindTag::Text,
+            ElementKindTag::Path,
+        ] {
+            scene.elements.push(tag.default_element());
+        }
+        scene.elements.push(make_group(vec![ElementKindTag::Rect.default_element()]));
+
+        let back = round_trip(&scene);
+        assert_eq!(back.elements.len(), scene.elements.len());
+        for (a, b) in scene.elements.iter().zip(&back.elements) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(
+                std::mem::discriminant(&a.kind),
+                std::mem::discriminant(&b.kind)
+            );
+        }
+        match &back.elements[0].kind {
+            ElementKind::Rect { style, .. } => assert!(style.fill.is_some()),
+            other => panic!("expected a Rect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn variables_travel_with_the_scene() {
+        let mut scene = Scene::default();
+        scene.vars.push(VarEntry {
+            id: "v1".into(),
+            kind: VarKind::AVar,
+            sim_name: "INDICATED ALTITUDE".into(),
+            unit: Some("feet".into()),
+            index: Some(0),
+            rust_type: RustVarType::F64,
+            preview_value: 1200.0,
+        });
+
+        let back = round_trip(&scene);
+        assert_eq!(back.vars.len(), 1);
+        assert_eq!(back.vars[0].sim_name, "INDICATED ALTITUDE");
+        assert_eq!(back.vars[0].unit.as_deref(), Some("feet"));
+    }
+
+    #[test]
+    fn scenes_saved_before_variables_still_load() {
+        let legacy = r#"(width: 512.0, height: 512.0, gauge_name: "old", elements: [])"#;
+        let scene: Scene = ron::from_str(legacy).unwrap();
+        assert!(scene.vars.is_empty());
+    }
+}
