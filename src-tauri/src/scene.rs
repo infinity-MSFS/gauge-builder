@@ -11,6 +11,10 @@ pub struct Scene {
     pub height: f32,
     pub gauge_name: String,
     pub elements: Vec<SceneElement>,
+    /// Editor-only tracing images. Filled in when the project is saved or
+    /// exported; the emitted gauge code never references them.
+    #[serde(default)]
+    pub ref_images: Vec<RefImage>,
 }
 
 impl Default for Scene {
@@ -20,8 +24,32 @@ impl Default for Scene {
             height: 512.0,
             gauge_name: "my_gauge".into(),
             elements: Vec::new(),
+            ref_images: Vec::new(),
         }
     }
+}
+
+/// A reference image as recorded in the scene RON. `file` points at the bytes
+/// written under the project's `refs/` folder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefImage {
+    pub id: String,
+    pub name: String,
+    /// Path relative to the directory holding the scene RON, e.g. `refs/x.png`.
+    pub file: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub opacity: f32,
+    pub locked: bool,
+    pub visible: bool,
+}
+
+/// Serialize a scene to the pretty RON form used for on-disk projects.
+pub fn scene_to_ron(scene: &Scene) -> Result<String, String> {
+    ron::ser::to_string_pretty(scene, ron::ser::PrettyConfig::default())
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

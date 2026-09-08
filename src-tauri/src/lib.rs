@@ -1,6 +1,7 @@
 mod build_runner;
 mod codegen;
 mod commands;
+mod refs;
 mod scene;
 mod var_registry;
 

@@ -2,39 +2,14 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useSceneStore } from "./sceneStore";
 import { useEditorStore } from "./editorStore";
-import { useRefImageStore, refImageElements } from "./refImageStore";
+import { useRefImageStore, refImageElements, refImageData } from "./refImageStore";
+import { bytesToDataURL, mimeFromExt, fileNameOf } from "./imageBytes";
 
 const MAX_NAME_LEN = 24;
 
 function trimName(name: string): string {
   if (name.length <= MAX_NAME_LEN) return name;
   return name.slice(0, MAX_NAME_LEN - 3) + "...";
-}
-
-function bytesToDataURL(bytes: Uint8Array, mime: string): string {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(
-      null,
-      bytes.subarray(i, i + chunk) as unknown as number[],
-    );
-  }
-  return `data:${mime};base64,${btoa(binary)}`;
-}
-
-function mimeFromExt(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  switch (ext) {
-    case "png":  return "image/png";
-    case "jpg":
-    case "jpeg": return "image/jpeg";
-    case "webp": return "image/webp";
-    case "bmp":  return "image/bmp";
-    case "gif":  return "image/gif";
-    case "svg":  return "image/svg+xml";
-    default:     return "image/png";
-  }
 }
 
 export function loadRefImageFromDataURL(
@@ -50,9 +25,11 @@ export function loadRefImageFromDataURL(
       const h = img.height * scale;
       const id = `ref_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       refImageElements.set(id, img);
+      refImageData.set(id, src);
       useRefImageStore.getState().addImage({
         id,
         name: trimName(name),
+        sourceName: name,
         x: (scene.width - w) / 2,
         y: (scene.height - h) / 2,
         w,
@@ -95,7 +72,7 @@ export async function pickRefImageViaDialog(): Promise<string | null> {
   if (!picked || typeof picked !== "string") return null;
   const bytes = await readFile(picked);
   const dataURL = bytesToDataURL(bytes, mimeFromExt(picked));
-  const name = picked.replace(/\\/g, "/").split("/").pop() ?? "Reference";
+  const name = fileNameOf(picked);
   return loadRefImageFromDataURL(dataURL, name);
 }
 

@@ -1,9 +1,10 @@
 use crate::build_runner::{self, BuildMode};
 use crate::codegen::{self, CodegenPreview};
+use crate::refs::{self, RefImageInput};
 use crate::scene::*;
 use crate::var_registry::*;
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::State;
 
 // ─── Scene commands ────────────────────────────────────────────────
@@ -410,13 +411,19 @@ pub fn redo(store: State<'_, SceneStore>) -> Result<Scene, String> {
     store.lock().unwrap().redo().ok_or("Nothing to redo".into())
 }
 
+/// Write the scene RON, extracting the editor's reference images into a
+/// `refs/` folder beside it so the project is self-contained.
 #[tauri::command]
-pub fn save_scene(path: String, store: State<'_, SceneStore>) -> Result<(), String> {
-    let scene = store.lock().unwrap().scene.clone();
-    let ron_str =
-        ron::ser::to_string_pretty(&scene, ron::ser::PrettyConfig::default())
-            .map_err(|e| e.to_string())?;
-    std::fs::write(&path, ron_str).map_err(|e| e.to_string())
+pub fn save_scene(
+    path: String,
+    ref_images: Vec<RefImageInput>,
+    store: State<'_, SceneStore>,
+) -> Result<(), String> {
+    let mut scene = store.lock().unwrap().scene.clone();
+    let path = PathBuf::from(path);
+    let project_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+    scene.ref_images = refs::extract_ref_images(&project_dir, &scene.gauge_name, &ref_images)?;
+    std::fs::write(&path, scene_to_ron(&scene)?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -474,12 +481,16 @@ pub fn codegen_preview(
 #[tauri::command]
 pub fn emit_project(
     output_dir: String,
+    ref_images: Vec<RefImageInput>,
     scene_store: State<'_, SceneStore>,
     var_store: State<'_, VarStore>,
 ) -> Result<(), String> {
-    let scene = scene_store.lock().unwrap().scene.clone();
+    let mut scene = scene_store.lock().unwrap().scene.clone();
     let vars = var_store.lock().unwrap().vars.clone();
-    codegen::emit_project(&scene, &vars, &PathBuf::from(output_dir))
+    let output_dir = PathBuf::from(output_dir);
+    std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+    scene.ref_images = refs::extract_ref_images(&output_dir, &scene.gauge_name, &ref_images)?;
+    codegen::emit_project(&scene, &vars, &output_dir)
 }
 
 // ─── Build commands ────────────────────────────────────────────────

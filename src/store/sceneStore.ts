@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import {
+	collectRefImageInputs,
+	restoreRefImages,
+	type RefImageRecord,
+} from "./refImageIO";
 
 // ─── Types mirroring Rust scene graph ──────────────────────────────
 
@@ -152,6 +157,8 @@ export interface Scene {
 	height: number;
 	gauge_name: string;
 	elements: SceneElement[];
+	/** Reference images as stored on disk; only meaningful right after a load. */
+	ref_images?: RefImageRecord[];
 }
 
 export type VarKind = "LVar" | "AVar";
@@ -419,12 +426,17 @@ export const useSceneStore = create<SceneStore>((set, get) => ({
 	},
 
 	saveScene: async (path) => {
-		await invoke("save_scene", { path });
+		// The backend drops the pixels into a refs/ folder beside the RON.
+		await invoke("save_scene", {
+			path,
+			refImages: collectRefImageInputs(),
+		});
 	},
 
 	loadScene: async (path) => {
 		const scene = await invoke<Scene>("load_scene", { path });
 		set({ scene });
+		await restoreRefImages(path, scene.ref_images ?? []);
 	},
 
 	setSceneLocal: (scene) => set({ scene }),
@@ -455,7 +467,10 @@ export const useSceneStore = create<SceneStore>((set, get) => ({
 	},
 
 	emitProject: async (outputDir) => {
-		await invoke("emit_project", { outputDir });
+		await invoke("emit_project", {
+			outputDir,
+			refImages: collectRefImageInputs(),
+		});
 	},
 
 	runBuild: async (outputDir, mode, msfsSdkPath) => {

@@ -17,6 +17,7 @@ fn scene_with(kind: ElementKind) -> Scene {
             locked: false,
             kind,
         }],
+        ref_images: Vec::new(),
     }
 }
 
