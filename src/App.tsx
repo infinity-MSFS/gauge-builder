@@ -4,7 +4,9 @@ import {
   save as dialogSave,
   open as dialogOpen,
 } from "@tauri-apps/plugin-dialog";
-import { useSceneStore } from "./store/sceneStore";
+import { useSceneStore, type SceneElement } from "./store/sceneStore";
+import { useEditorStore } from "./store/editorStore";
+import { useRefImageStore } from "./store/refImageStore";
 import Canvas from "./components/Canvas";
 import LayerList from "./components/LayerList";
 import Inspector from "./components/Inspector";
@@ -110,7 +112,6 @@ function GaugeSettingsPopover() {
     setHeight(scene.height);
   }, [scene.gauge_name, scene.width, scene.height]);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -128,6 +129,13 @@ function GaugeSettingsPopover() {
 
   const inputCls =
     "bg-[#0a0a0a] border border-[#1e1e1e] rounded-md text-[#e8e8e8] text-xs px-2.5 py-1.5 outline-none focus:border-[#6366f1] transition-colors w-full";
+
+  const PRESETS: [string, number, number][] = [
+    ["Square 512", 512, 512],
+    ["Square 1024", 1024, 1024],
+    ["Wide 1024×256", 1024, 256],
+    ["MFD 1280×1024", 1280, 1024],
+  ];
 
   return (
     <div className="relative shrink-0" ref={ref}>
@@ -148,7 +156,7 @@ function GaugeSettingsPopover() {
         <div
           className="absolute top-full mt-1 left-0 z-50 rounded-lg overflow-hidden"
           style={{
-            width: 240,
+            width: 244,
             background: "#0d0d0d",
             border: "1px solid #1e1e1e",
             boxShadow: "0 12px 40px rgba(0,0,0,0.8)",
@@ -196,6 +204,30 @@ function GaugeSettingsPopover() {
                 />
               </label>
             </div>
+            <div className="flex flex-wrap gap-1">
+              {PRESETS.map(([label, w, h]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    setWidth(w);
+                    setHeight(h);
+                  }}
+                  className="text-[10px] px-1.5 py-0.5 rounded"
+                  style={{
+                    background:
+                      width === w && height === h
+                        ? "rgba(99,102,241,0.2)"
+                        : "rgba(255,255,255,0.04)",
+                    color:
+                      width === w && height === h ? "#818cf8" : "#6a6a6a",
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={apply}
@@ -210,9 +242,125 @@ function GaugeSettingsPopover() {
   );
 }
 
+// ── Keyboard shortcut reference ────────────────────────────────────
+
+const SHORTCUTS: [string, [string, string][]][] = [
+  [
+    "Tools",
+    [
+      ["V", "Select — move, scale, multi-select"],
+      ["A", "Direct Select — anchors and handles"],
+      ["P", "Pen — draw or extend a path"],
+      ["R / O / C / L / T", "Rectangle, circle, arc, line, text"],
+      ["H or hold Space", "Pan"],
+    ],
+  ],
+  [
+    "Drawing",
+    [
+      ["Shift while drawing", "Square / circle / 15° angles"],
+      ["Alt while scaling", "Scale about the centre"],
+      ["Click first anchor", "Close the path"],
+      ["Enter / double-click", "Finish an open path"],
+      ["Backspace (pen)", "Remove the last anchor"],
+      ["Alt-click a segment", "Insert an anchor"],
+      ["Alt-click an anchor", "Corner ⇄ smooth"],
+      ["Alt-drag a handle", "Break handle symmetry"],
+    ],
+  ],
+  [
+    "Editing",
+    [
+      ["Ctrl+Z / Ctrl+Shift+Z", "Undo / redo"],
+      ["Ctrl+D", "Duplicate"],
+      ["Ctrl+G / Ctrl+Shift+G", "Group / ungroup"],
+      ["Ctrl+A", "Select all"],
+      ["Ctrl+] / Ctrl+[", "Bring forward / send backward"],
+      ["Arrows", "Nudge 1px (Shift ×2 grid, Alt 0.5px)"],
+      ["Double-click a group", "Enter it; Esc to leave"],
+      ["Delete", "Remove selection or selected anchors"],
+    ],
+  ],
+  [
+    "View",
+    [
+      ["Ctrl+0 / Ctrl+F", "Fit artboard"],
+      ["Ctrl+1", "Zoom to 100%"],
+      ["Ctrl++ / Ctrl+−", "Zoom in / out"],
+      ["'", "Toggle grid"],
+      [";", "Toggle snapping"],
+      ["Hold Ctrl", "Bypass snapping while dragging"],
+    ],
+  ],
+];
+
+function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.72)" }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-xl overflow-hidden flex flex-col"
+        style={{
+          width: 720,
+          maxHeight: "80vh",
+          background: "#080808",
+          border: "1px solid #1a1a1a",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.9)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-4"
+          style={{ height: 44, borderBottom: "1px solid #111111" }}
+        >
+          <span className="text-xs font-semibold" style={{ color: "#e8e8e8" }}>
+            Keyboard Shortcuts
+          </span>
+          <button
+            onClick={onClose}
+            style={{ color: "#737373", fontSize: 16, cursor: "pointer" }}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5 p-5 overflow-y-auto">
+          {SHORTCUTS.map(([section, rows]) => (
+            <div key={section}>
+              <div
+                className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+                style={{ color: "#454545" }}
+              >
+                {section}
+              </div>
+              <div className="flex flex-col gap-1">
+                {rows.map(([keys, desc]) => (
+                  <div key={keys} className="flex items-baseline gap-3">
+                    <span
+                      className="font-mono text-[10px] shrink-0 text-right"
+                      style={{ color: "#818cf8", width: 150 }}
+                    >
+                      {keys}
+                    </span>
+                    <span className="text-[11px]" style={{ color: "#8a8a8a" }}>
+                      {desc}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Toolbar / Title bar ────────────────────────────────────────────
 
-function Toolbar() {
+function Toolbar({ onShowHelp }: { onShowHelp: () => void }) {
   const undo = useSceneStore((s) => s.undo);
   const redo = useSceneStore((s) => s.redo);
   const saveScene = useSceneStore((s) => s.saveScene);
@@ -234,7 +382,10 @@ function Toolbar() {
       filters: [{ name: "RON Scene", extensions: ["ron"] }],
     });
     const path = Array.isArray(result) ? result[0] : result;
-    if (path) await loadScene(path);
+    if (path) {
+      await loadScene(path);
+      useEditorStore.getState().clearSelection();
+    }
   };
   const fetchCodegenPreview = useSceneStore((s) => s.fetchCodegenPreview);
   const codegenPreview = useSceneStore((s) => s.codegenPreview);
@@ -257,7 +408,6 @@ function Toolbar() {
           borderBottom: "1px solid #111111",
         }}
       >
-        {/* Left: brand + actions — stop drag so clicks work */}
         <div
           className="flex items-center gap-1 px-3"
           onMouseDown={(e) => e.stopPropagation()}
@@ -293,16 +443,18 @@ function Toolbar() {
           <ToolBtn onClick={handlePreviewCode} variant="primary">
             ◈ Preview Code
           </ToolBtn>
+
+          <ToolBtn onClick={onShowHelp} title="Keyboard shortcuts (?)">
+            ? Shortcuts
+          </ToolBtn>
         </div>
 
-        {/* Spacer — drag region fills the middle */}
         <div
           className="flex-1"
           data-tauri-drag-region
           style={{ height: "100%" }}
         />
 
-        {/* Right: window controls — stop drag so clicks work */}
         <div onMouseDown={(e) => e.stopPropagation()}>
           <WindowControls />
         </div>
@@ -377,7 +529,6 @@ function CodePreviewModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div
           className="flex items-center justify-between px-4"
           style={{
@@ -437,7 +588,6 @@ function CodePreviewModal({
           </div>
         </div>
 
-        {/* Code */}
         <pre
           className="flex-1 overflow-auto font-mono leading-5"
           style={{
@@ -466,17 +616,43 @@ function CodePreviewModal({
 
 // ── App root ───────────────────────────────────────────────────────
 
+function collectIds(elements: SceneElement[], out: Set<string>) {
+  for (const el of elements) {
+    out.add(el.id);
+    if (el.kind.type === "Group") collectIds(el.kind.children, out);
+  }
+}
+
 export default function App() {
   const fetchScene = useSceneStore((s) => s.fetchScene);
   const fetchVars = useSceneStore((s) => s.fetchVars);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     fetchScene();
     fetchVars();
   }, []);
 
+  // Undo, load and delete can remove elements out from under the selection —
+  // drop ids that no longer exist so panels never render stale state.
+  useEffect(() => {
+    return useSceneStore.subscribe((state) => {
+      const ed = useEditorStore.getState();
+      if (ed.selection.length === 0 && !ed.isolationId) return;
+      const live = new Set<string>();
+      collectIds(state.scene.elements, live);
+      // Reference images live outside the scene graph but share the selection.
+      for (const img of useRefImageStore.getState().images) live.add(img.id);
+      const kept = ed.selection.filter((id) => live.has(id));
+      if (kept.length !== ed.selection.length) ed.setSelection(kept);
+      if (ed.isolationId && !live.has(ed.isolationId)) ed.setIsolation(null);
+    });
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target?.matches?.("input,textarea,[contenteditable]")) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         useSceneStore.getState().undo();
@@ -485,6 +661,14 @@ export default function App() {
         e.preventDefault();
         useSceneStore.getState().redo();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        useSceneStore.getState().redo();
+      }
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        setShowHelp((v) => !v);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -492,13 +676,15 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen" style={{ background: "#000000" }}>
-      <Toolbar />
+      <Toolbar onShowHelp={() => setShowHelp(true)} />
       <div className="flex flex-1 min-h-0">
         <LayerList />
         <Canvas />
         <Inspector />
       </div>
       <BuildPanel />
+      {showHelp && <ShortcutsModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 }
+

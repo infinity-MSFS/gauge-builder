@@ -1,6 +1,6 @@
 # Infinity Gauge Builder
 
-Visual editor for building MSFS 2024 WASM gauge instruments. Design NanoVG-based gauges with a drag-and-drop canvas, bind properties to simulator variables, and export a ready-to-compile Rust crate targeting the [infinity-rs](https://github.com/anthropics/infinity-rs) SDK.
+Visual editor for building MSFS 2024 WASM gauge instruments. Design NanoVG-based gauges on a vector canvas, bind properties to simulator variables, and export a ready-to-compile Rust crate targeting the [infinity-rs](https://github.com/anthropics/infinity-rs) SDK.
 
 ## Stack
 
@@ -8,17 +8,71 @@ Visual editor for building MSFS 2024 WASM gauge instruments. Design NanoVG-based
 - **Backend:** Rust (Tauri v2)
 - **Output:** Rust crate (`wasm32-wasip1`) using `msfs` / `msfs_derive` from infinity-rs
 
-## Features
+## The editor
 
-- **Scene graph** with Rect, Circle, Arc, Line, Text, Path, and Group elements
-- **Canvas** with pan/zoom, drag-to-move, resize handles, and selection
-- **Reference images** — drop images onto the canvas to trace over, with per-image opacity, lock, and visibility controls
+### Tools
+
+| Key | Tool | Notes |
+|---|---|---|
+| `V` | Select | Move, scale, marquee and multi-select |
+| `A` | Direct Select | Drag anchors and bezier handles |
+| `P` | Pen | Draw a new path, or continue an open one |
+| `R` | Rectangle | Drag to size; `Shift` for a square |
+| `O` | Circle | Drags outward from the centre |
+| `C` | Arc | Drag a radius, then sweep the two angle handles |
+| `L` | Line | `Shift` constrains to 15° steps |
+| `T` | Text | Click to place, double-click to edit in place |
+| `H` | Hand | Pan (or hold `Space` with any tool) |
+
+### Paths
+
+Paths are fully editable on canvas, not just in code:
+
+- **Pen** — click for a corner anchor, click-drag for a smooth one with handles. Click the first anchor to close, `Enter` or double-click to finish, `Backspace` to undo the last anchor.
+- **Direct Select** — drag anchors and handles; `Alt`-drag a handle to break its symmetry, `Alt`-click an anchor to toggle corner ⇄ smooth, `Alt`-click a segment to insert an anchor (the curve is split exactly, so the shape doesn't shift).
+- **Convert to Path** turns a rect, circle, arc or line into an editable path with matching geometry.
+- Each anchor's X and Y can be bound to a sim variable independently, so a path can deform at runtime.
+
+### Snapping
+
+Object, artboard and grid snapping, with magenta guides showing what caught. Element edges, centres, path anchors and circle centres are all targets, as are the artboard edges and centre. Alignment always wins over the grid, so smart guides still fire on a coarse grid. Hold `Ctrl` to bypass snapping mid-drag; the snap radius is in screen pixels, so it tightens as you zoom in.
+
+### Layout
+
+Align and distribute (aligning to the artboard when only one element is selected), z-ordering within the element's own parent, group/ungroup, per-layer lock and hide, drag-to-reorder and drag-into-group in the layer list, and double-click to enter a group for isolated editing.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+D` | Duplicate |
+| `Ctrl+G` / `Ctrl+Shift+G` | Group / ungroup |
+| `Ctrl+A` | Select all |
+| `Ctrl+]` / `Ctrl+[` | Bring forward / send backward (add `Shift` for front/back) |
+| Arrows | Nudge 1px — `Shift` for two grid steps, `Alt` for 0.5px |
+| `Delete` | Remove the selection, or the selected anchors |
+| `Esc` | Cancel the pen, leave a group, or deselect |
+| `Ctrl+0` / `Ctrl+F` | Fit artboard |
+| `Ctrl+1` | Zoom to 100% |
+| `Ctrl++` / `Ctrl+-` | Zoom in / out |
+| `'` / `;` | Toggle grid / snapping |
+| `Space + drag` | Pan |
+| `Scroll` | Zoom |
+| `?` | Shortcut reference |
+
+## Other features
+
+- **Scene graph** with Rect (with corner radius), Circle, Arc, Line, Text, Path and Group elements
+- **Groups** with translate, rotate, scale, opacity and a draggable **pivot** — put the pivot on a needle's hub and bind rotation to a sim variable
+- **Modifiers** — rectangular clip, plus linear and radial arrays for tick marks
+- **Reference images** — drop or paste images to trace over, with per-image opacity, lock and visibility
 - **Variables** — define LVars and AVars, bind element properties to sim data at runtime
 - **BoundValue system** — any numeric property can be a literal, LVar, AVar, or RPN expression
-- **Inspector** — geometry, style, and binding tabs per element
-- **Codegen** — generates `gauge.rs`, `draw.rs`, `vars.rs`, and `Cargo.toml` matching infinity-rs API
+- **Text** with static labels or bound values, horizontal/vertical alignment and decimal precision, mapped to `ctx.text_align()`
+- **Codegen** — generates `gauge.rs`, `draw.rs`, `vars.rs`, and `Cargo.toml` matching the infinity-rs API
 - **Build** — codegen-only, `cargo check`, or full `wasm32-wasip1` release build
-- **Undo/redo** with keyboard shortcuts
+- **Undo/redo** with coalescing, so scrubbing a field is one step rather than dozens
 - **Save/load** scenes as RON files
 
 ## Getting Started
@@ -33,16 +87,12 @@ bun tauri build
 
 Requires [Rust](https://rustup.rs/) and the Tauri v2 CLI prerequisites.
 
-## Keyboard Shortcuts
+## Tests
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Z` | Undo |
-| `Ctrl+Shift+Z` | Redo |
-| `Ctrl+F` | Fit canvas to viewport |
-| `Space + drag` | Pan |
-| `Scroll` | Zoom |
-| `Delete` | Remove selected element/reference |
+```bash
+bun test                      # canvas geometry, path editing and snapping
+cd src-tauri && cargo test    # codegen output
+```
 
 ## License
 

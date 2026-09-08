@@ -1,5 +1,7 @@
 pub mod cargo_emit;
 pub mod draw;
+#[cfg(test)]
+mod draw_tests;
 pub mod gauge_emit;
 pub mod vars_emit;
 

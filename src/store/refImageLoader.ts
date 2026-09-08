@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useSceneStore } from "./sceneStore";
+import { useEditorStore } from "./editorStore";
 import { useRefImageStore, refImageElements } from "./refImageStore";
 
 const MAX_NAME_LEN = 24;
@@ -60,7 +61,7 @@ export function loadRefImageFromDataURL(
         locked: false,
         visible: true,
       });
-      useSceneStore.getState().setSelectedId(id);
+      useEditorStore.getState().setSelection([id]);
       resolve(id);
     };
     img.onerror = () => reject(new Error("Failed to decode image"));

@@ -8,7 +8,8 @@ pub fn emit_draw(scene: &Scene, vars: &[VarEntry]) -> String {
 use crate::vars;
 
 #[cfg(target_arch = "wasm32")]
-use infinity_rs::nvg::{self, NvgContext, Color, LineCap, LineJoin, Winding};
+#[allow(unused_imports)]
+use infinity_rs::nvg::{self, NvgContext, Align, Color, LineCap, LineJoin, Winding};
 
 pub fn render(
     #[cfg(target_arch = "wasm32")] ctx: &NvgContext,
@@ -52,16 +53,34 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
     let pad = "    ".repeat(indent);
 
     match &el.kind {
-        ElementKind::Rect { x, y, w, h, style } => {
+        ElementKind::Rect {
+            x,
+            y,
+            w,
+            h,
+            radius,
+            style,
+        } => {
             emit_style_calls(out, style, &pad);
             out.push_str(&format!("{pad}ctx.begin_path();\n"));
-            out.push_str(&format!(
-                "{pad}ctx.rect({}, {}, {}, {});\n",
-                bv(x),
-                bv(y),
-                bv(w),
-                bv(h),
-            ));
+            if is_zero(radius) {
+                out.push_str(&format!(
+                    "{pad}ctx.rect({}, {}, {}, {});\n",
+                    bv(x),
+                    bv(y),
+                    bv(w),
+                    bv(h),
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{pad}ctx.rounded_rect({}, {}, {}, {}, {});\n",
+                    bv(x),
+                    bv(y),
+                    bv(w),
+                    bv(h),
+                    bv(radius),
+                ));
+            }
             emit_fill_stroke(out, style, &pad);
         }
         ElementKind::Circle { cx, cy, r, style } => {
@@ -120,6 +139,10 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             content,
             font_size,
             font,
+            text,
+            align_h,
+            align_v,
+            decimals,
             style,
         } => {
             emit_style_calls(out, style, &pad);
@@ -127,13 +150,43 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
                 "{pad}// TODO: ensure font \"{}\" is loaded via ctx.create_font() in Gauge::init\n",
                 font,
             ));
-            out.push_str(&format!("{pad}ctx.font_size({} as f32);\n", bv(font_size),));
-            out.push_str(&format!(
-                "{pad}ctx.text({} as f32, {} as f32, &format!(\"{{}}\", {}));\n",
-                bv(x),
-                bv(y),
-                bv(content),
-            ));
+            out.push_str(&format!("{pad}ctx.font_face(\"{}\");\n", font));
+            out.push_str(&format!("{pad}ctx.font_size({});\n", bv(font_size)));
+            let ah = match align_h {
+                TextAlignH::Left => "Align::LEFT",
+                TextAlignH::Center => "Align::CENTER",
+                TextAlignH::Right => "Align::RIGHT",
+            };
+            let av = match align_v {
+                TextAlignV::Top => "Align::TOP",
+                TextAlignV::Middle => "Align::MIDDLE",
+                TextAlignV::Bottom => "Align::BOTTOM",
+                TextAlignV::Baseline => "Align::BASELINE",
+            };
+            out.push_str(&format!("{pad}ctx.text_align({ah} | {av});\n"));
+
+            // A static label wins over the bound value; otherwise format the
+            // number with the configured precision.
+            match text {
+                Some(t) if !t.is_empty() => {
+                    out.push_str(&format!(
+                        "{pad}ctx.text({}, {}, \"{}\");\n",
+                        bv(x),
+                        bv(y),
+                        escape_rust_str(t),
+                    ));
+                }
+                _ => {
+                    out.push_str(&format!(
+                        "{pad}ctx.text({}, {}, &format!(\"{{:.{}}}\", {}));\n",
+                        bv(x),
+                        bv(y),
+                        decimals,
+                        bv(content),
+                    ));
+                }
+            }
+            out.push_str(&format!("{pad}ctx.restore();\n"));
         }
         ElementKind::Path { commands, style } => {
             emit_style_calls(out, style, &pad);
@@ -179,6 +232,8 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
             scale_x,
             scale_y,
             opacity,
+            pivot_x,
+            pivot_y,
             clip_modifier,
             array_modifier,
             ..
@@ -207,6 +262,15 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
                 bv(translate_x),
                 bv(translate_y)
             ));
+            // Rotate and scale about the pivot, so a needle spins around its hub.
+            let has_pivot = !is_zero(pivot_x) || !is_zero(pivot_y);
+            if has_pivot {
+                out.push_str(&format!(
+                    "{gp}ctx.translate({}, {});\n",
+                    bv(pivot_x),
+                    bv(pivot_y)
+                ));
+            }
             out.push_str(&format!(
                 "{gp}ctx.rotate(({}) * std::f32::consts::PI / 180.0_f32);\n",
                 bv(rotate)
@@ -216,6 +280,13 @@ fn emit_element(out: &mut String, el: &SceneElement, indent: usize) {
                 bv(scale_x),
                 bv(scale_y)
             ));
+            if has_pivot {
+                out.push_str(&format!(
+                    "{gp}ctx.translate(-({}), -({}));\n",
+                    bv(pivot_x),
+                    bv(pivot_y)
+                ));
+            }
             out.push_str(&format!("{gp}ctx.global_alpha({});\n", bv(opacity)));
 
             match array_modifier {
@@ -325,6 +396,14 @@ fn emit_fill_stroke(out: &mut String, style: &NvgStyle, pad: &str) {
         out.push_str(&format!("{pad}ctx.stroke();\n"));
     }
     out.push_str(&format!("{pad}ctx.restore();\n"));
+}
+
+fn is_zero(v: &BoundValue) -> bool {
+    matches!(v, BoundValue::Literal { value } if *value == 0.0)
+}
+
+fn escape_rust_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn bv(v: &BoundValue) -> String {
